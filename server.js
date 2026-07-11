@@ -24,7 +24,7 @@ const DISTRICT_COUNT = parseInt(
 // output — плоский коммерческий оборот (для завода). upkeep — содержание за тик.
 const BUILDINGS = {
   center:  { cost: 0,   kind: 'center',   glyph: '🚩', label: 'Центр города', upkeep: 0, allow: ['g', 'f'] },
-  road:    { cost: 10,  kind: 'road',     glyph: '🛣', label: 'Дорога',   upkeep: 0 },
+  road:    { cost: 5,   kind: 'road',     glyph: '🛣', label: 'Дорога',   upkeep: 0, layer: true, allow: ['g', 'f'] },
   house:   { cost: 50,  kind: 'house',    glyph: '🏠', label: 'Дом',      upkeep: 0, wood: 5 },
   well:    { cost: 60,  kind: 'provider', glyph: '💧', label: 'Колодец',  upkeep: 2, wood: 2, stone: 3, range: { shape: 'diamond', r: 3 }, produces: { res: 'water', from: 'w', mode: 'flat' } },
   farm:    { cost: 60,  kind: 'provider', glyph: '🌾', label: 'Ферма',    upkeep: 2, wood: 3, allow: ['g'], range: { shape: 'square',  r: 3 }, produces: { res: 'food', from: 'g', mode: 'perTile' } },
@@ -68,6 +68,7 @@ const RES_RATE = { water: WATER_PER_WELL, food: FOOD_PER_GRASS, wood: WOOD_PER_F
 const START_WOOD = parseInt(process.env.START_WOOD || '30', 10);   // стартовый запас дерева
 const START_STONE = parseInt(process.env.START_STONE || '20', 10); // стартовый запас камня
 const FAITH_PER_POP = 2;         // вера = население × коэффициент (пока фикс)
+const NO_ROAD_PENALTY = 25;      // штраф к счастью дома без дороги рядом
 const FAITH_BASE_RADIUS = parseInt(process.env.FAITH_BASE_RADIUS || '3', 10);   // радиус застройки от центра на старте
 const FAITH_RADIUS_COEF = parseFloat(process.env.FAITH_RADIUS_COEF || '0.15');  // прибавка радиуса за единицу веры
 
@@ -190,6 +191,10 @@ function canPlace(room, x, y, type) { return allowOf(type).includes(terrainAt(ro
 function cityFaith(room) { let p = 0; for (const c of room.grid.values()) if (c.type === 'house') p += c.pop || 0; return p * FAITH_PER_POP; }
 function cityRadius(room) { return FAITH_BASE_RADIUS + Math.floor(cityFaith(room) * FAITH_RADIUS_COEF); }
 function inCity(room, x, y) { if (!room.center) return false; const dx = x - room.center.x, dy = y - room.center.y, R = cityRadius(room); return dx * dx + dy * dy <= R * R + R; }
+// Дороги — слой поверх тайлов (room.roads: 0/1). Здание работает, только если рядом (по стороне) есть дорога.
+function roadAt(room, x, y) { return !!(room.roads && x >= 0 && y >= 0 && x < GRID_SIZE && y < GRID_SIZE && room.roads[y * GRID_SIZE + x]); }
+function roadNeighbor(room, x, y) { return neighbors(x, y).some(([nx, ny]) => roadAt(room, nx, ny)); }
+function isActive(room, x, y, type) { return type === 'center' || roadNeighbor(room, x, y); }
 // Запас ресурса на тайле (лес/камень/вода истощаются; трава/земля — нет)
 const DEPLETABLE = new Set(['f', 's', 'w']);
 function initReserve(terrain) {
@@ -201,11 +206,12 @@ function initReserve(terrain) {
 function extractResources(room) {
   const n = GRID_SIZE, out = { water: 0, food: 0, wood: 0, stone: 0 };
   const roadSet = new Set();
-  for (const [k, c] of room.grid) if (c.type === 'road') roadSet.add(k);
+  if (room.roads) for (let i = 0; i < room.roads.length; i++) if (room.roads[i]) roadSet.add(`${i % n},${Math.floor(i / n)}`);
   const depleted = [];
   for (const [k, cell] of room.grid) {
     const def = BUILDINGS[cell.type]; if (!def || !def.produces) continue;
     const pr = def.produces, [px, py] = k.split(',').map(Number);
+    if (!roadNeighbor(room, px, py)) continue; // нет дороги — не работает
     const nearRoad = neighbors(px, py).some(([nx, ny]) => roadSet.has(`${nx},${ny}`));
     const r = def.range.r + (nearRoad ? 1 : 0), rate = RES_RATE[pr.res];
     // еда: трава не истощается
@@ -319,9 +325,10 @@ function computeSim(room) {
   const festivalSet = new Set(room.districts.filter((d) => d.mods.festival).map((d) => d.id));
   const gridlockSet = new Set(room.districts.filter((d) => d.mods.gridlock).map((d) => d.id));
 
-  const roadSet = new Set(cells.filter((c) => c.type === 'road').map((c) => c.k));
+  const roadSet = new Set();
+  if (room.roads) for (let i = 0; i < room.roads.length; i++) if (room.roads[i]) roadSet.add(`${i % GRID_SIZE},${Math.floor(i / GRID_SIZE)}`);
   const providers = cells
-    .filter((c) => BUILDINGS[c.type] && BUILDINGS[c.type].kind === 'provider')
+    .filter((c) => BUILDINGS[c.type] && BUILDINGS[c.type].kind === 'provider' && roadNeighbor(room, c.x, c.y))
     .map((c) => {
       const rng = BUILDINGS[c.type].range;
       const nearRoad = neighbors(c.x, c.y).some(([nx, ny]) => roadSet.has(`${nx},${ny}`));
@@ -330,9 +337,9 @@ function computeSim(room) {
       return { ...c, shape: rng.shape, r };
     });
   const houses = cells.filter((c) => c.type === 'house');
-  // Рынок труда (общегородской): жители едут на свободные места, платят только занятые
+  // Рынок труда: рабочие места дают только здания, подключённые к дороге
   let totalPop = 0, totalJobs = 0;
-  for (const c of cells) { if (c.type === 'house') totalPop += c.pop || 0; totalJobs += jobsOf(c.type); }
+  for (const c of cells) { if (c.type === 'house') totalPop += c.pop || 0; if (isActive(room, c.x, c.y, c.type)) totalJobs += jobsOf(c.type); }
   const empFraction = totalPop > 0 ? Math.min(1, totalJobs / totalPop) : 1;
   const unempPenalty = Math.round((1 - empFraction) * UNEMP_PENALTY_MAX);
 
@@ -342,6 +349,7 @@ function computeSim(room) {
   // Вредные зоны (шум, загрязнение)
   const nuisances = [];
   for (const c of cells) {
+    if (!isActive(room, c.x, c.y, c.type)) continue; // отключённое здание не работает и не вредит
     const em = BUILDINGS[c.type] && BUILDINGS[c.type].emits;
     if (em) for (const e of em) nuisances.push({ x: c.x, y: c.y, ...e });
   }
@@ -369,6 +377,8 @@ function computeSim(room) {
 
     // Вредные воздействия: гасят показатель и/или счастье
     let extra = -unempPenalty;
+    const hActive = roadNeighbor(room, h.x, h.y);
+    if (!hActive) extra -= NO_ROAD_PENALTY; // нет дороги рядом — дом отрезан
     for (const nz of nuisances) {
       if (!covers(nz.shape, h.x - nz.x, h.y - nz.y, nz.r)) continue;
       extra += nz.happy || 0;
@@ -394,7 +404,7 @@ function computeSim(room) {
     const cap = h.cap || HOUSE_CAP;
     const happy = happiness(level, pop, cap, taxes, crimeSet.has(hDist), epidemicSet.has(hDist), room.deficit, extra);
     const gross = pop * (1 + level) * 2; // налогооблагаемая ценность домохозяйства
-    houseInfo.set(h.k, { level, needs, pop, cap, district: hDist, happy, gross });
+    houseInfo.set(h.k, { level, needs, pop, cap, district: hDist, happy, gross, active: hActive });
   }
 
   // Налоги и содержание
@@ -402,7 +412,7 @@ function computeSim(room) {
   for (const info of houseInfo.values()) residential += info.gross * empFraction * (taxes.residential / 100);
   let commBase = 0;
   for (const p of providers) if (BUILDINGS[p.type].commercial) commBase += (served.get(p.k) || 0) * SERVICE_FEE;
-  for (const c of cells) if (BUILDINGS[c.type] && BUILDINGS[c.type].output) commBase += BUILDINGS[c.type].output;
+  for (const c of cells) if (BUILDINGS[c.type] && BUILDINGS[c.type].output && isActive(room, c.x, c.y, c.type)) commBase += BUILDINGS[c.type].output;
   commercial = commBase * (taxes.commercial / 100);
   for (const c of cells) {
     property += PROPERTY_UNIT * (taxes.property / 100);
@@ -540,7 +550,7 @@ function runDay(room) {
   let immBudget = Math.max(0, totalJobs - curPop);
   // приезжают в самые счастливые дома со свободным местом — пустые в хорошем месте заселяются первыми
   const arrivals = list
-    .filter((h) => h.cell.pop < (h.cell.cap || HOUSE_CAP) && h.info.happy >= GROW_H)
+    .filter((h) => h.cell.pop < (h.cell.cap || HOUSE_CAP) && h.info.happy >= GROW_H && h.info.active)
     .sort((a, b) => b.info.happy - a.info.happy);
   for (const h of arrivals) {
     if (immBudget <= 0) break;
@@ -588,7 +598,9 @@ function serializeState(room) {
   const grid = {};
   for (const [key, cell] of room.grid) {
     const owner = room.players.get(cell.owner);
+    const [cx, cy] = key.split(',').map(Number);
     const base = { type: cell.type, owner: cell.owner, ownerColor: owner ? owner.color : '#999999' };
+    base.active = isActive(room, cx, cy, cell.type);
     if (cell.type === 'house') {
       const info = sim.houseInfo.get(key);
       if (info) { base.pop = info.pop; base.cap = info.cap; base.level = info.level; base.needs = info.needs; base.happy = info.happy; base.savings = Math.round(cell.savings || 0); }
@@ -611,7 +623,7 @@ function serializeState(room) {
     stock: room.stock || { water: 0, food: 0, wood: 0, stone: 0 }, short: room.short || { water: false, food: false },
     faith: cityFaith(room), center: room.center || null, cityRadius: cityRadius(room),
     flows: { ...sim.flows, ...(room.prodRates || {}) }, population,
-    terrain: room.terrain.join(''), reserve: room.reserve || [], tileMax: TILE_RESERVE,
+    terrain: room.terrain.join(''), reserve: room.reserve || [], tileMax: TILE_RESERVE, roads: room.roads || [],
     catalog: BUILDINGS, needs: NEEDS, tierLabels: TIER_LABEL, sprites: spriteMap, houseCap: HOUSE_CAP,
     jobs: JOBS, terrainMeta: TERRAIN, terrainSprites,
     districts: room.districts.map((d) => ({
@@ -665,7 +677,7 @@ function onJoin(ws, msg) {
   if (!code) {
     code = genCode();
     const terr = genTerrain();
-    room = { code, grid: new Map(), players: new Map(), hostPid: null, lastActive: Date.now(), tick: 0, day: 0, treasury: START_TREASURY, taxes: { ...DEFAULT_TAXES }, deficit: false, districts: [], nextDistrictId: 0, terrain: terr, reserve: initReserve(terr), stock: { water: 0, food: 0, wood: START_WOOD, stone: START_STONE }, short: { water: false, food: false }, prodRates: {} };
+    room = { code, grid: new Map(), players: new Map(), hostPid: null, lastActive: Date.now(), tick: 0, day: 0, treasury: START_TREASURY, taxes: { ...DEFAULT_TAXES }, deficit: false, districts: [], nextDistrictId: 0, terrain: terr, reserve: initReserve(terr), roads: new Array(GRID_SIZE * GRID_SIZE).fill(0), stock: { water: 0, food: 0, wood: START_WOOD, stone: START_STONE }, short: { water: false, food: false }, prodRates: {} };
     rooms.set(code, room);
     isNew = true;
   } else {
@@ -696,6 +708,21 @@ function onPlace(ws, msg) {
   if (!inBounds(x, y)) return;
   const key = `${x},${y}`;
   if (room.grid.has(key)) return send(ws, { type: 'error', message: 'Клетка занята' });
+  const idx = y * GRID_SIZE + x;
+  // Дорога — это слой, а не здание в сетке
+  if (def.layer) {
+    if (!room.center) return send(ws, { type: 'error', message: 'Сначала поставьте центр города' });
+    if (!inCity(room, x, y)) return send(ws, { type: 'error', message: 'За пределами города — не хватает веры' });
+    if (!canPlace(room, x, y, building)) return send(ws, { type: 'error', message: 'Здесь нельзя проложить дорогу' });
+    if (!room.roads) room.roads = new Array(GRID_SIZE * GRID_SIZE).fill(0);
+    if (room.roads[idx]) return send(ws, { type: 'error', message: 'Тут уже дорога' });
+    if (room.treasury < def.cost) return send(ws, { type: 'error', message: 'В казне не хватает денег' });
+    room.treasury -= def.cost;
+    if (room.terrain[idx] === 'f') { room.terrain[idx] = 'g'; if (room.reserve) room.reserve[idx] = 0; }
+    room.roads[idx] = 1;
+    room.lastActive = Date.now();
+    return broadcast(room);
+  }
   // Центр города ставится первым и единожды; всё остальное — внутри радиуса веры
   if (building === 'center') {
     if (room.center) return send(ws, { type: 'error', message: 'Центр города уже поставлен' });
@@ -703,6 +730,7 @@ function onPlace(ws, msg) {
     if (!room.center) return send(ws, { type: 'error', message: 'Сначала поставьте центр города' });
     if (!inCity(room, x, y)) return send(ws, { type: 'error', message: 'За пределами города — не хватает веры' });
   }
+  if (room.roads && room.roads[idx]) return send(ws, { type: 'error', message: 'Здесь дорога — сначала снесите её' });
   if (!canPlace(room, x, y, building)) return send(ws, { type: 'error', message: 'Здесь нельзя построить это здание' });
   if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };
   const needWood = def.wood || 0, needStone = def.stone || 0;
@@ -712,7 +740,6 @@ function onPlace(ws, msg) {
   room.treasury -= def.cost;
   room.stock.wood -= needWood; room.stock.stone -= needStone;
   // застройка на лесу вырубает его
-  const idx = y * GRID_SIZE + x;
   if (room.terrain[idx] === 'f') { room.terrain[idx] = 'g'; if (room.reserve) room.reserve[idx] = 0; room.terrainDirty = true; }
   const cell = { type: building, owner: ws.pid };
   if (def.kind === 'house') { cell.pop = 0; cell.cap = HOUSE_CAP; cell.savings = 0; }
@@ -728,7 +755,12 @@ function onBulldoze(ws, msg) {  // кооп: снести может любой
   if (!inBounds(x, y)) return;
   const key = `${x},${y}`;
   const cell = room.grid.get(key);
-  if (!cell) return;
+  if (!cell) {
+    // здания нет — может, тут дорога
+    const idx = y * GRID_SIZE + x;
+    if (room.roads && room.roads[idx]) { room.roads[idx] = 0; room.treasury += 2; room.lastActive = Date.now(); return broadcast(room); }
+    return;
+  }
   if (cell.type === 'center') return send(ws, { type: 'error', message: 'Центр города нельзя снести' });
   const def = BUILDINGS[cell.type];
   if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };

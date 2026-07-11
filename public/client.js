@@ -91,6 +91,7 @@ function handle(msg) {
     S.jobs = msg.jobs || {}; S.terrainMeta = msg.terrainMeta || {}; S.terrainSprites = msg.terrainSprites || {};
     if (msg.terrain) S.terrain = msg.terrain;
     S.reserve = msg.reserve || S.reserve || []; S.tileMax = msg.tileMax || S.tileMax || 100;
+    S.roads = msg.roads || S.roads || [];
     const hadCenter = !!S.center;
     S.center = msg.center || null; S.cityRadius = msg.cityRadius || 0;
     if (!S.center) S.selected = 'center';
@@ -325,6 +326,19 @@ function render() {
       if (y + 1 < n && dmap[y + 1][x] !== here) { ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(x * CELL, (y + 1) * CELL); ctx.lineTo((x + 1) * CELL, (y + 1) * CELL); ctx.stroke(); }
     }
 
+  // Дороги (слой): плитки + перемычки к соседям
+  if (S.roads) {
+    const road = (x, y) => x >= 0 && y >= 0 && x < n && y < n && S.roads[y * n + x];
+    ctx.fillStyle = '#83858c';
+    for (let y = 0; y < n; y++)
+      for (let x = 0; x < n; x++) {
+        if (!road(x, y)) continue;
+        roundRect(x * CELL + 4, y * CELL + 4, CELL - 8, CELL - 8, 4); ctx.fill();
+        if (road(x + 1, y)) ctx.fillRect((x + 1) * CELL - 4, y * CELL + 4, 8, CELL - 8);
+        if (road(x, y + 1)) ctx.fillRect(x * CELL + 4, (y + 1) * CELL - 4, CELL - 8, 8);
+      }
+  }
+
   // Зона города: затемняем снаружи радиуса веры, рисуем обвод
   if (S.center) {
     ctx.fillStyle = 'rgba(18,20,28,0.34)';
@@ -387,6 +401,8 @@ function roundRect(x, y, w, h, r) {
 function drawCell(x, y, cell) {
   const def = S.catalog[cell.type] || { glyph: '?' };
   const px = x * CELL, py = y * CELL, pad = 3, iw = CELL - pad * 2;
+  const inactive = cell.active === false && cell.type !== 'center';
+  if (inactive) ctx.globalAlpha = 0.5; // нет дороги — здание не работает
   const sp = IMAGES[cell.type];
   if (sp && sp.ready) {
     ctx.drawImage(sp.img, px, py, CELL, CELL); // свой спрайт во всю клетку, без подложки и рамки
@@ -405,6 +421,12 @@ function drawCell(x, y, cell) {
     ctx.fillStyle = 'rgba(42,38,34,.85)'; ctx.font = 'bold 10px system-ui, sans-serif';
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText(`${cell.pop || 0}/${cell.cap || S.houseCap}`, px + 4, py + 3);
+  }
+  if (inactive) {
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.arc(px + CELL - 8, py + CELL - 8, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 9px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('⚑', px + CELL - 8, py + CELL - 7);
   }
 }
 function drawDistrictLabel(d) {
@@ -497,6 +519,7 @@ function updateTooltip() {
   } else {
     html += `<div class="tip-lvl">содержание ${def.upkeep || 0}/тик</div>`;
   }
+  if (cell.active === false && cell.type !== 'center') html += `<div class="tip-lvl tip-bad">⚠ нет дороги рядом — не работает</div>`;
   tip.innerHTML = html;
   placeTooltip(tip);
 }
