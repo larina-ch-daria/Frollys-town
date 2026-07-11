@@ -103,6 +103,12 @@ function handle(msg) {
     S.jobs = msg.jobs || {}; S.terrainMeta = msg.terrainMeta || {}; S.terrainSprites = msg.terrainSprites || {};
     if (msg.terrain) S.terrain = msg.terrain;
     S.reserve = msg.reserve || S.reserve || []; S.tileMax = msg.tileMax || S.tileMax || 100;
+    const hadCenter = !!S.center;
+    S.center = msg.center || null; S.cityRadius = msg.cityRadius || 0;
+    if (!S.center) S.selected = 'center';
+    else if (!hadCenter && S.selected === 'center') S.selected = 'house';
+    if (hadCenter !== !!S.center) { renderPalette(); }
+    const hint = $('hint'); if (hint) hint.textContent = S.center ? 'Выберите здание справа и кликните по клетке · наведите на здание для деталей' : '🚩 Поставьте центр города — кликните по свободной клетке';
     S.day = msg.day; S.dayTicks = msg.dayTicks; S.tickInDay = msg.tickInDay; S.treasury = msg.treasury;
     if (msg.paper && msg.day > S.lastSeenDay) { S.lastSeenDay = msg.day; S.paper = msg.paper; renderPaper(); flashPaper(msg.day); }
     else if (msg.paper && !S.paper) { S.paper = msg.paper; renderPaper(); }
@@ -131,6 +137,7 @@ function enterGame() { lobby.hidden = true; game.hidden = false; sizeCanvas(); }
 // ---------- Палитра ----------
 function renderPalette() {
   const wrap = $('palette'); wrap.innerHTML = '';
+  if (!S.center) addPaletteGroup(wrap, '🚩 Начало города', ['center']);
   addPaletteGroup(wrap, 'Основа', ['house', 'road']);
   for (let t = 1; t <= 5; t++) {
     const types = [...new Set(S.needs.filter((n) => n.tier === t).flatMap((n) => n.providers))];
@@ -289,6 +296,18 @@ function render() {
       if (d) { ctx.globalAlpha = 0.14; diamond(p.x, p.y); ctx.fillStyle = d.color; ctx.fill(); ctx.globalAlpha = 1; }
     }
 
+  // Зона города: затемняем ромбы снаружи радиуса, подсвечиваем центр
+  if (S.center) {
+    for (let gy = 0; gy < n; gy++)
+      for (let gx = 0; gx < n; gx++)
+        if (!inCityClient(gx, gy)) { const p = project(gx, gy); diamond(p.x, p.y); ctx.fillStyle = 'rgba(18,20,28,0.34)'; ctx.fill(); }
+    const c = project(S.center.x, S.center.y);
+    diamond(c.x, c.y); ctx.strokeStyle = 'rgba(224,182,74,0.95)'; ctx.lineWidth = 2.5; ctx.stroke();
+  } else {
+    for (let gy = 0; gy < n; gy++)
+      for (let gx = 0; gx < n; gx++) { const p = project(gx, gy); diamond(p.x, p.y); ctx.fillStyle = 'rgba(18,20,28,0.34)'; ctx.fill(); }
+  }
+
   // Превью зоны (ромбами) на земле
   if (S.hover) {
     const hc = S.state.grid[`${S.hover.x},${S.hover.y}`];
@@ -297,7 +316,8 @@ function render() {
       const code = S.terrain ? S.terrain[S.hover.y * n + S.hover.x] : 'g';
       const def = S.catalog[S.selected];
       const allow = (def && def.allow) || ['g', 'f'];
-      if (!S.bulldoze && def && !allow.includes(code)) { const p = project(S.hover.x, S.hover.y); diamond(p.x, p.y); ctx.fillStyle = 'rgba(200,70,55,0.4)'; ctx.fill(); }
+      const outside = S.selected !== 'center' && !inCityClient(S.hover.x, S.hover.y);
+      if (!S.bulldoze && def && (!allow.includes(code) || outside)) { const p = project(S.hover.x, S.hover.y); diamond(p.x, p.y); ctx.fillStyle = 'rgba(200,70,55,0.4)'; ctx.fill(); }
       else if (def && (def.range || def.emits) && !S.bulldoze) drawCoverage(S.hover.x, S.hover.y, S.selected);
     }
     const p = project(S.hover.x, S.hover.y);

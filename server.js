@@ -23,6 +23,7 @@ const DISTRICT_COUNT = parseInt(
 // emits: [{label, shape, r, happy, negates}] — вредное воздействие в зоне.
 // output — плоский коммерческий оборот (для завода). upkeep — содержание за тик.
 const BUILDINGS = {
+  center:  { cost: 0,   kind: 'center',   glyph: '🚩', label: 'Центр города', upkeep: 0, allow: ['g', 'f'] },
   road:    { cost: 10,  kind: 'road',     glyph: '🛣', label: 'Дорога',   upkeep: 0 },
   house:   { cost: 50,  kind: 'house',    glyph: '🏠', label: 'Дом',      upkeep: 0, wood: 5 },
   well:    { cost: 60,  kind: 'provider', glyph: '💧', label: 'Колодец',  upkeep: 2, wood: 2, stone: 3, range: { shape: 'diamond', r: 3 }, produces: { res: 'water', from: 'w', mode: 'flat' } },
@@ -67,6 +68,8 @@ const RES_RATE = { water: WATER_PER_WELL, food: FOOD_PER_GRASS, wood: WOOD_PER_F
 const START_WOOD = parseInt(process.env.START_WOOD || '30', 10);   // стартовый запас дерева
 const START_STONE = parseInt(process.env.START_STONE || '20', 10); // стартовый запас камня
 const FAITH_PER_POP = 2;         // вера = население × коэффициент (пока фикс)
+const FAITH_BASE_RADIUS = parseInt(process.env.FAITH_BASE_RADIUS || '3', 10);   // радиус застройки от центра на старте
+const FAITH_RADIUS_COEF = parseFloat(process.env.FAITH_RADIUS_COEF || '0.15');  // прибавка радиуса за единицу веры
 
 // Рабочие места по типам зданий (жители едут только на свободные)
 const JOBS = { factory: 8, shop: 3, cafe: 3, gym: 3, theater: 3, clinic: 4, police: 4, school: 4, well: 1, farm: 1, sawmill: 2, quarry: 2, park: 0, road: 0, house: 0 };
@@ -184,6 +187,9 @@ function buildable(room, x, y) { const t = TERRAIN[terrainAt(room, x, y)]; retur
 // Пообъектное размещение: где здание можно ставить (по умолчанию трава/лес)
 function allowOf(type) { return (BUILDINGS[type] && BUILDINGS[type].allow) || ['g', 'f']; }
 function canPlace(room, x, y, type) { return allowOf(type).includes(terrainAt(room, x, y)); }
+function cityFaith(room) { let p = 0; for (const c of room.grid.values()) if (c.type === 'house') p += c.pop || 0; return p * FAITH_PER_POP; }
+function cityRadius(room) { return FAITH_BASE_RADIUS + Math.floor(cityFaith(room) * FAITH_RADIUS_COEF); }
+function inCity(room, x, y) { if (!room.center) return false; const dx = x - room.center.x, dy = y - room.center.y, R = cityRadius(room); return dx * dx + dy * dy <= R * R + R; }
 // Запас ресурса на тайле (лес/камень/вода истощаются; трава/земля — нет)
 const DEPLETABLE = new Set(['f', 's', 'w']);
 function initReserve(terrain) {
@@ -603,7 +609,7 @@ function serializeState(room) {
     })),
     treasury: Math.floor(room.treasury), taxes: room.taxes, deficit: !!room.deficit,
     stock: room.stock || { water: 0, food: 0, wood: 0, stone: 0 }, short: room.short || { water: false, food: false },
-    faith: (function () { let p = 0; for (const c of room.grid.values()) if (c.type === 'house') p += c.pop || 0; return p * FAITH_PER_POP; })(),
+    faith: cityFaith(room), center: room.center || null, cityRadius: cityRadius(room),
     flows: { ...sim.flows, ...(room.prodRates || {}) }, population,
     terrain: room.terrain.join(''), reserve: room.reserve || [], tileMax: TILE_RESERVE,
     catalog: BUILDINGS, needs: NEEDS, tierLabels: TIER_LABEL, sprites: spriteMap, houseCap: HOUSE_CAP,
@@ -690,6 +696,13 @@ function onPlace(ws, msg) {
   if (!inBounds(x, y)) return;
   const key = `${x},${y}`;
   if (room.grid.has(key)) return send(ws, { type: 'error', message: 'Клетка занята' });
+  // Центр города ставится первым и единожды; всё остальное — внутри радиуса веры
+  if (building === 'center') {
+    if (room.center) return send(ws, { type: 'error', message: 'Центр города уже поставлен' });
+  } else {
+    if (!room.center) return send(ws, { type: 'error', message: 'Сначала поставьте центр города' });
+    if (!inCity(room, x, y)) return send(ws, { type: 'error', message: 'За пределами города — не хватает веры' });
+  }
   if (!canPlace(room, x, y, building)) return send(ws, { type: 'error', message: 'Здесь нельзя построить это здание' });
   if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };
   const needWood = def.wood || 0, needStone = def.stone || 0;
@@ -703,6 +716,7 @@ function onPlace(ws, msg) {
   if (room.terrain[idx] === 'f') { room.terrain[idx] = 'g'; if (room.reserve) room.reserve[idx] = 0; room.terrainDirty = true; }
   const cell = { type: building, owner: ws.pid };
   if (def.kind === 'house') { cell.pop = 0; cell.cap = HOUSE_CAP; cell.savings = 0; }
+  if (building === 'center') room.center = { x, y };
   room.grid.set(key, cell);
   room.lastActive = Date.now();
   broadcast(room);
@@ -715,6 +729,7 @@ function onBulldoze(ws, msg) {  // кооп: снести может любой
   const key = `${x},${y}`;
   const cell = room.grid.get(key);
   if (!cell) return;
+  if (cell.type === 'center') return send(ws, { type: 'error', message: 'Центр города нельзя снести' });
   const def = BUILDINGS[cell.type];
   if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };
   room.treasury += Math.floor((def ? def.cost : 0) / 2);        // возврат 50% денег и ресурсов
