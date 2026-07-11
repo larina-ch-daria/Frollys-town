@@ -99,10 +99,10 @@ function handle(msg) {
   if (msg.type === 'state') {
     S.state = msg; S.hostPid = msg.hostPid; S.gridSize = msg.gridSize;
     S.catalog = msg.catalog; S.needs = msg.needs; S.tierLabels = msg.tierLabels; S.houseCap = msg.houseCap;
-    S.sprites = msg.sprites || {}; S.districts = msg.districts || [];
+    S.sprites = msg.sprites || {}; S.districts = msg.districts || []; S.modIcons = msg.modIcons || S.modIcons || {};
     S.jobs = msg.jobs || {}; S.terrainMeta = msg.terrainMeta || {}; S.terrainSprites = msg.terrainSprites || {};
     if (msg.terrain) S.terrain = msg.terrain;
-    S.reserve = msg.reserve || S.reserve || []; S.tileMax = msg.tileMax || S.tileMax || 100;
+    S.reserve = msg.reserve || S.reserve || []; S.tileMax = msg.tileMax || S.tileMax || {};
     S.roads = msg.roads || S.roads || [];
     const hadCenter = !!S.center;
     S.center = msg.center || null; S.cityRadius = msg.cityRadius || 0;
@@ -321,7 +321,7 @@ function render() {
         const g = (S.terrainMeta['g'] && S.terrainMeta['g'].color) || '#cfe0c3';
         diamond(p.x, p.y); ctx.fillStyle = g; ctx.fill();
       }
-      const frac = depl ? Math.max(0, Math.min(1, (S.reserve[idx] || 0) / (S.tileMax || 100))) : 1;
+      const frac = depl ? Math.max(0, Math.min(1, (S.reserve[idx] || 0) / ((S.tileMax && S.tileMax[code]) || 100))) : 1;
       ctx.globalAlpha = depl ? (0.25 + 0.75 * frac) : 1;
       diamond(p.x, p.y); ctx.fillStyle = col; ctx.fill();
       ctx.globalAlpha = 1;
@@ -430,7 +430,8 @@ function drawCell(x, y, cell) {
 }
 function drawDistrictLabel(d) {
   const p = project(d.seed.x, d.seed.y); const cxp = p.x, cyp = p.y + TH / 2;
-  const tag = (d.epidemic ? '🦠 ' : '') + (d.crime ? '🚨 ' : '') + (d.gridlock ? '🚧 ' : '') + (d.snob ? '💅 ' : '') + (d.festival ? '🎉 ' : '') + d.name;
+  const icons = (d.mods || []).map((m) => (S.modIcons && S.modIcons[m]) ? S.modIcons[m] + ' ' : '').join('');
+  const tag = icons + d.name;
   ctx.font = '600 11px "Baloo 2", system-ui, sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const w = ctx.measureText(tag).width + 14;
@@ -482,7 +483,7 @@ function updateTooltip() {
     const parts = [];
     if (tm) {
       let lbl = tm.label;
-      if (S.reserve && (code === 'f' || code === 'w' || code === 's')) lbl += ` · запас ${Math.round(S.reserve[idx] || 0)}/${S.tileMax || 100}`;
+      if (S.reserve && (code === 'f' || code === 'w' || code === 's')) lbl += ` · запас ${Math.round(S.reserve[idx] || 0)}/${(S.tileMax && S.tileMax[code]) || 100}`;
       if (tm.build === false) lbl += ' · не застроить';
       parts.push(lbl);
     }
