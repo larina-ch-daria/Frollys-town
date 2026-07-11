@@ -24,18 +24,20 @@ const DISTRICT_COUNT = parseInt(
 // output — плоский коммерческий оборот (для завода). upkeep — содержание за тик.
 const BUILDINGS = {
   road:    { cost: 10,  kind: 'road',     glyph: '🛣', label: 'Дорога',   upkeep: 0 },
-  house:   { cost: 50,  kind: 'house',    glyph: '🏠', label: 'Дом',      upkeep: 0 },
-  well:    { cost: 60,  kind: 'provider', glyph: '💧', label: 'Колодец',  upkeep: 2, range: { shape: 'diamond', r: 3 } },
-  farm:    { cost: 60,  kind: 'provider', glyph: '🌾', label: 'Ферма',    upkeep: 2, range: { shape: 'square',  r: 3 } },
-  clinic:  { cost: 120, kind: 'provider', glyph: '🏥', label: 'Клиника',  upkeep: 5, range: { shape: 'circle',  r: 4 } },
-  police:  { cost: 120, kind: 'provider', glyph: '🚓', label: 'Полиция',  upkeep: 5, range: { shape: 'circle',  r: 4 } },
-  park:    { cost: 40,  kind: 'provider', glyph: '🌳', label: 'Парк',     upkeep: 1, range: { shape: 'circle',  r: 3 } },
-  cafe:    { cost: 80,  kind: 'provider', glyph: '☕', label: 'Кафе',     upkeep: 3, range: { shape: 'diamond', r: 2 }, commercial: true, emits: [{ label: 'шум', shape: 'diamond', r: 2, happy: -6 }] },
-  shop:    { cost: 100, kind: 'provider', glyph: '🏪', label: 'Магазин',  upkeep: 3, range: { shape: 'square',  r: 3 }, commercial: true },
-  gym:     { cost: 100, kind: 'provider', glyph: '🏋', label: 'Спортзал', upkeep: 3, range: { shape: 'diamond', r: 3 }, commercial: true, emits: [{ label: 'шум', shape: 'square', r: 1, happy: -5 }] },
-  school:  { cost: 150, kind: 'provider', glyph: '🏫', label: 'Школа',    upkeep: 4, range: { shape: 'cross',   r: 5 } },
-  theater: { cost: 150, kind: 'provider', glyph: '🎭', label: 'Театр',    upkeep: 5, range: { shape: 'circle',  r: 4 }, commercial: true, emits: [{ label: 'шум', shape: 'circle', r: 2, happy: -10 }] },
-  factory: { cost: 140, kind: 'industry', glyph: '🏭', label: 'Завод',    upkeep: 4, output: 12, emits: [{ label: 'загрязнение', shape: 'circle', r: 3, happy: -20, negates: 'health' }] },
+  house:   { cost: 50,  kind: 'house',    glyph: '🏠', label: 'Дом',      upkeep: 0, wood: 5 },
+  well:    { cost: 60,  kind: 'provider', glyph: '💧', label: 'Колодец',  upkeep: 2, wood: 2, stone: 3, range: { shape: 'diamond', r: 3 }, produces: { res: 'water', from: 'w', mode: 'flat' } },
+  farm:    { cost: 60,  kind: 'provider', glyph: '🌾', label: 'Ферма',    upkeep: 2, wood: 3, allow: ['g'], range: { shape: 'square',  r: 3 }, produces: { res: 'food', from: 'g', mode: 'perTile' } },
+  sawmill: { cost: 40,  kind: 'provider', glyph: '🪚', label: 'Лесопилка', upkeep: 2, range: { shape: 'square', r: 3 }, produces: { res: 'wood', from: 'f', mode: 'perTile' } },
+  quarry:  { cost: 40,  kind: 'provider', glyph: '⛏', label: 'Каменоломня', upkeep: 2, wood: 4, range: { shape: 'square', r: 3 }, produces: { res: 'stone', from: 's', mode: 'perTile' } },
+  clinic:  { cost: 120, kind: 'provider', glyph: '🏥', label: 'Клиника',  upkeep: 5, wood: 4, stone: 6, range: { shape: 'circle',  r: 4 } },
+  police:  { cost: 120, kind: 'provider', glyph: '🚓', label: 'Полиция',  upkeep: 5, wood: 4, stone: 6, range: { shape: 'circle',  r: 4 } },
+  park:    { cost: 40,  kind: 'provider', glyph: '🌳', label: 'Парк',     upkeep: 1, wood: 2, range: { shape: 'circle',  r: 3 } },
+  cafe:    { cost: 80,  kind: 'provider', glyph: '☕', label: 'Кафе',     upkeep: 3, wood: 4, stone: 2, range: { shape: 'diamond', r: 2 }, commercial: true, emits: [{ label: 'шум', shape: 'diamond', r: 2, happy: -6 }] },
+  shop:    { cost: 100, kind: 'provider', glyph: '🏪', label: 'Магазин',  upkeep: 3, wood: 4, stone: 4, range: { shape: 'square',  r: 3 }, commercial: true },
+  gym:     { cost: 100, kind: 'provider', glyph: '🏋', label: 'Спортзал', upkeep: 3, wood: 4, stone: 4, range: { shape: 'diamond', r: 3 }, commercial: true, emits: [{ label: 'шум', shape: 'square', r: 1, happy: -5 }] },
+  school:  { cost: 150, kind: 'provider', glyph: '🏫', label: 'Школа',    upkeep: 4, wood: 6, stone: 6, range: { shape: 'cross',   r: 5 } },
+  theater: { cost: 150, kind: 'provider', glyph: '🎭', label: 'Театр',    upkeep: 5, wood: 6, stone: 8, range: { shape: 'circle',  r: 4 }, commercial: true, emits: [{ label: 'шум', shape: 'circle', r: 2, happy: -10 }] },
+  factory: { cost: 140, kind: 'industry', glyph: '🏭', label: 'Завод',    upkeep: 4, wood: 4, stone: 10, output: 12, emits: [{ label: 'загрязнение', shape: 'circle', r: 3, happy: -20, negates: 'health' }] },
 };
 
 const NEEDS = [
@@ -55,13 +57,19 @@ const SERVICE_FEE = 1;           // «оборот» коммерческого 
 // Ресурсы-склад (еда/вода): производители льют в общий пул, жители потребляют.
 const WATER_PER_WELL = 6;        // производство воды колодцем за тик
 const FOOD_PER_GRASS = 0.5;      // еда фермы = FOOD_PER_GRASS × тайлов травы в её радиусе
+const WOOD_PER_FOREST = 0.5;     // дерево лесопилки = × тайлов леса в радиусе
+const STONE_PER_ROCK = 0.5;      // камень каменоломни = × тайлов камня в радиусе
 const CONSUME_WATER = 1;         // потребление воды на жителя за тик
 const CONSUME_FOOD = 1;          // потребление еды на жителя за тик
 const STOCK_CAP = 999;           // потолок склада
+const TILE_RESERVE = parseInt(process.env.TILE_RESERVE || '100', 10); // запас ресурса на тайле леса/камня/воды
+const RES_RATE = { water: WATER_PER_WELL, food: FOOD_PER_GRASS, wood: WOOD_PER_FOREST, stone: STONE_PER_ROCK };
+const START_WOOD = parseInt(process.env.START_WOOD || '30', 10);   // стартовый запас дерева
+const START_STONE = parseInt(process.env.START_STONE || '20', 10); // стартовый запас камня
 const FAITH_PER_POP = 2;         // вера = население × коэффициент (пока фикс)
 
 // Рабочие места по типам зданий (жители едут только на свободные)
-const JOBS = { factory: 8, shop: 3, cafe: 3, gym: 3, theater: 3, clinic: 4, police: 4, school: 4, well: 1, farm: 1, park: 0, road: 0, house: 0 };
+const JOBS = { factory: 8, shop: 3, cafe: 3, gym: 3, theater: 3, clinic: 4, police: 4, school: 4, well: 1, farm: 1, sawmill: 2, quarry: 2, park: 0, road: 0, house: 0 };
 function jobsOf(type) { return JOBS[type] || 0; }
 const UNEMP_PENALTY_MAX = 30;    // штраф к счастью при 100% безработице
 
@@ -173,6 +181,57 @@ function genTerrain() {
 }
 function terrainAt(room, x, y) { return room.terrain ? room.terrain[y * GRID_SIZE + x] : 'g'; }
 function buildable(room, x, y) { const t = TERRAIN[terrainAt(room, x, y)]; return !t || t.build !== false; }
+// Пообъектное размещение: где здание можно ставить (по умолчанию трава/лес)
+function allowOf(type) { return (BUILDINGS[type] && BUILDINGS[type].allow) || ['g', 'f']; }
+function canPlace(room, x, y, type) { return allowOf(type).includes(terrainAt(room, x, y)); }
+// Запас ресурса на тайле (лес/камень/вода истощаются; трава/земля — нет)
+const DEPLETABLE = new Set(['f', 's', 'w']);
+function initReserve(terrain) {
+  const rv = new Array(terrain.length).fill(0);
+  for (let i = 0; i < terrain.length; i++) if (DEPLETABLE.has(terrain[i])) rv[i] = TILE_RESERVE;
+  return rv;
+}
+// Добыча с истощением (вызывается в тик-цикле, мутирует room.terrain/room.reserve)
+function extractResources(room) {
+  const n = GRID_SIZE, out = { water: 0, food: 0, wood: 0, stone: 0 };
+  const roadSet = new Set();
+  for (const [k, c] of room.grid) if (c.type === 'road') roadSet.add(k);
+  const depleted = [];
+  for (const [k, cell] of room.grid) {
+    const def = BUILDINGS[cell.type]; if (!def || !def.produces) continue;
+    const pr = def.produces, [px, py] = k.split(',').map(Number);
+    const nearRoad = neighbors(px, py).some(([nx, ny]) => roadSet.has(`${nx},${ny}`));
+    const r = def.range.r + (nearRoad ? 1 : 0), rate = RES_RATE[pr.res];
+    // еда: трава не истощается
+    if (pr.from === 'g') {
+      let count = 0;
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (!covers(def.range.shape, dx, dy, r)) continue;
+        const gx = px + dx, gy = py + dy;
+        if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+        if (room.terrain[gy * n + gx] === 'g') count += 1;
+      }
+      out.food += count * rate; continue;
+    }
+    // истощаемые: вода/дерево/камень — тянем из запаса тайлов
+    let got = 0; const flat = pr.mode === 'flat';
+    for (let dy = -r; dy <= r && (!flat || got < rate); dy++)
+      for (let dx = -r; dx <= r && (!flat || got < rate); dx++) {
+        if (!covers(def.range.shape, dx, dy, r)) continue;
+        const gx = px + dx, gy = py + dy; if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+        const idx = gy * n + gx;
+        if (room.terrain[idx] !== pr.from || room.reserve[idx] <= 0) continue;
+        const take = flat ? Math.min(room.reserve[idx], rate - got) : Math.min(room.reserve[idx], rate);
+        room.reserve[idx] -= take; got += take;
+        if (room.reserve[idx] <= 0) depleted.push(idx);
+      }
+    out[pr.res] += got;
+  }
+  // опустевшие тайлы становятся травой
+  for (const idx of depleted) { room.terrain[idx] = 'g'; room.reserve[idx] = 0; }
+  room.terrainDirty = room.terrainDirty || depleted.length > 0;
+  return out;
+}
 
 // --- Районы появляются постепенно, по мере роста населения ---
 function districtTarget(totalPop) {
@@ -271,32 +330,7 @@ function computeSim(room) {
   const empFraction = totalPop > 0 ? Math.min(1, totalJobs / totalPop) : 1;
   const unempPenalty = Math.round((1 - empFraction) * UNEMP_PENALTY_MAX);
 
-  // Ресурсы: производство воды (колодцы) и еды (фермы × трава в радиусе)
-  let waterProd = 0, foodProd = 0;
-  for (const p of providers) {
-    if (p.type === 'well') {
-      let water = 0;
-      for (let dy = -p.r; dy <= p.r; dy++)
-        for (let dx = -p.r; dx <= p.r; dx++) {
-          if (!covers(p.shape, dx, dy, p.r)) continue;
-          const gx = p.x + dx, gy = p.y + dy;
-          if (gx < 0 || gy < 0 || gx >= GRID_SIZE || gy >= GRID_SIZE) continue;
-          if (terrainAt(room, gx, gy) === 'w') water += 1;
-        }
-      if (water > 0) waterProd += WATER_PER_WELL; // есть вода в радиусе — качает норму, иначе сухой
-    } else if (p.type === 'farm') {
-      let grass = 0;
-      for (let dy = -p.r; dy <= p.r; dy++)
-        for (let dx = -p.r; dx <= p.r; dx++) {
-          if (!covers(p.shape, dx, dy, p.r)) continue;
-          const gx = p.x + dx, gy = p.y + dy;
-          if (gx < 0 || gy < 0 || gx >= GRID_SIZE || gy >= GRID_SIZE) continue;
-          if (terrainAt(room, gx, gy) === 'g') grass += 1;
-        }
-      foodProd += grass * FOOD_PER_GRASS;
-    }
-  }
-  const waterCons = totalPop * CONSUME_WATER, foodCons = totalPop * CONSUME_FOOD;
+  // Дефицит воды/еды берём из состояния (склад считается в тик-цикле)
   const waterShort = !!(room.short && room.short.water), foodShort = !!(room.short && room.short.food);
 
   // Вредные зоны (шум, загрязнение)
@@ -374,7 +408,6 @@ function computeSim(room) {
     property: Math.round(property), revenue: Math.round(revenue),
     upkeep: Math.round(upkeep), net: Math.round(revenue - upkeep),
     jobs: totalJobs, employed: Math.min(totalPop, totalJobs), population: totalPop,
-    waterProd: Math.round(waterProd), waterCons, foodProd: Math.round(foodProd), foodCons,
   };
   return { houseInfo, served, dOf, flows };
 }
@@ -569,9 +602,10 @@ function serializeState(room) {
       online: !!(p.ws && p.ws.readyState === WebSocket.OPEN),
     })),
     treasury: Math.floor(room.treasury), taxes: room.taxes, deficit: !!room.deficit,
-    stock: room.stock || { water: 0, food: 0 }, short: room.short || { water: false, food: false },
+    stock: room.stock || { water: 0, food: 0, wood: 0, stone: 0 }, short: room.short || { water: false, food: false },
     faith: (function () { let p = 0; for (const c of room.grid.values()) if (c.type === 'house') p += c.pop || 0; return p * FAITH_PER_POP; })(),
-    flows: sim.flows, population,
+    flows: { ...sim.flows, ...(room.prodRates || {}) }, population,
+    terrain: room.terrain.join(''), reserve: room.reserve || [], tileMax: TILE_RESERVE,
     catalog: BUILDINGS, needs: NEEDS, tierLabels: TIER_LABEL, sprites: spriteMap, houseCap: HOUSE_CAP,
     jobs: JOBS, terrainMeta: TERRAIN, terrainSprites,
     districts: room.districts.map((d) => ({
@@ -624,7 +658,8 @@ function onJoin(ws, msg) {
   let room, isNew = false;
   if (!code) {
     code = genCode();
-    room = { code, grid: new Map(), players: new Map(), hostPid: null, lastActive: Date.now(), tick: 0, day: 0, treasury: START_TREASURY, taxes: { ...DEFAULT_TAXES }, deficit: false, districts: [], nextDistrictId: 0, terrain: genTerrain(), stock: { water: 0, food: 0 }, short: { water: false, food: false } };
+    const terr = genTerrain();
+    room = { code, grid: new Map(), players: new Map(), hostPid: null, lastActive: Date.now(), tick: 0, day: 0, treasury: START_TREASURY, taxes: { ...DEFAULT_TAXES }, deficit: false, districts: [], nextDistrictId: 0, terrain: terr, reserve: initReserve(terr), stock: { water: 0, food: 0, wood: START_WOOD, stone: START_STONE }, short: { water: false, food: false }, prodRates: {} };
     rooms.set(code, room);
     isNew = true;
   } else {
@@ -655,9 +690,17 @@ function onPlace(ws, msg) {
   if (!inBounds(x, y)) return;
   const key = `${x},${y}`;
   if (room.grid.has(key)) return send(ws, { type: 'error', message: 'Клетка занята' });
-  if (!buildable(room, x, y)) return send(ws, { type: 'error', message: 'Здесь не построить — вода или скалы' });
+  if (!canPlace(room, x, y, building)) return send(ws, { type: 'error', message: 'Здесь нельзя построить это здание' });
+  if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };
+  const needWood = def.wood || 0, needStone = def.stone || 0;
   if (room.treasury < def.cost) return send(ws, { type: 'error', message: 'В казне не хватает денег' });
+  if ((room.stock.wood || 0) < needWood) return send(ws, { type: 'error', message: 'Не хватает дерева' });
+  if ((room.stock.stone || 0) < needStone) return send(ws, { type: 'error', message: 'Не хватает камня' });
   room.treasury -= def.cost;
+  room.stock.wood -= needWood; room.stock.stone -= needStone;
+  // застройка на лесу вырубает его
+  const idx = y * GRID_SIZE + x;
+  if (room.terrain[idx] === 'f') { room.terrain[idx] = 'g'; if (room.reserve) room.reserve[idx] = 0; room.terrainDirty = true; }
   const cell = { type: building, owner: ws.pid };
   if (def.kind === 'house') { cell.pop = 0; cell.cap = HOUSE_CAP; cell.savings = 0; }
   room.grid.set(key, cell);
@@ -673,7 +716,10 @@ function onBulldoze(ws, msg) {  // кооп: снести может любой
   const cell = room.grid.get(key);
   if (!cell) return;
   const def = BUILDINGS[cell.type];
-  room.treasury += Math.floor((def ? def.cost : 0) / 2);
+  if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };
+  room.treasury += Math.floor((def ? def.cost : 0) / 2);        // возврат 50% денег и ресурсов
+  room.stock.wood = clamp(room.stock.wood + Math.floor((def && def.wood || 0) / 2), 0, STOCK_CAP);
+  room.stock.stone = clamp(room.stock.stone + Math.floor((def && def.stone || 0) / 2), 0, STOCK_CAP);
   room.grid.delete(key);
   room.lastActive = Date.now();
   broadcast(room);
@@ -697,14 +743,23 @@ setInterval(() => {
     room.treasury += sim.flows.net;
     if (room.treasury < 0) { room.treasury = 0; room.deficit = true; } else room.deficit = false;
 
-    // Склад ресурсов: + производство − потребление, флаг дефицита для следующего тика
-    if (!room.stock) room.stock = { water: 0, food: 0 };
+    // Склад ресурсов: добыча с истощением тайлов − потребление жителями
+    if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };
     if (!room.short) room.short = { water: false, food: false };
-    const nw = room.stock.water + sim.flows.waterProd - sim.flows.waterCons;
-    const nf = room.stock.food + sim.flows.foodProd - sim.flows.foodCons;
+    const prod = extractResources(room);          // мутирует запас тайлов, опустевшие → трава
+    const pop = sim.flows.population;
+    const waterCons = pop * CONSUME_WATER, foodCons = pop * CONSUME_FOOD;
+    const nw = room.stock.water + prod.water - waterCons;
+    const nf = room.stock.food + prod.food - foodCons;
     room.short.water = nw < 0; room.short.food = nf < 0;
     room.stock.water = clamp(nw, 0, STOCK_CAP);
     room.stock.food = clamp(nf, 0, STOCK_CAP);
+    room.stock.wood = clamp((room.stock.wood || 0) + prod.wood, 0, STOCK_CAP);
+    room.stock.stone = clamp((room.stock.stone || 0) + prod.stone, 0, STOCK_CAP);
+    room.prodRates = {
+      waterProd: Math.round(prod.water), waterCons, foodProd: Math.round(prod.food), foodCons,
+      woodProd: Math.round(prod.wood), stoneProd: Math.round(prod.stone),
+    };
 
     room.tick = (room.tick || 0) + 1;
     if (room.tick % DAY_TICKS === 0) runDay(room);

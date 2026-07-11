@@ -5,7 +5,7 @@ const COLORS = {
   road: '#6b7280', house: '#e8c07d',
   well: '#8fc7e8', farm: '#d9c26a', clinic: '#e88f8f', police: '#8f9fe8',
   park: '#86c28b', cafe: '#c9a882', shop: '#7fb3d5', gym: '#c98ac9',
-  school: '#9fd0a0', theater: '#c98ab0', factory: '#9aa0a6',
+  school: '#9fd0a0', theater: '#c98ab0', factory: '#9aa0a6', sawmill: '#c19a6b', quarry: '#9a9ea3',
 };
 
 const S = {
@@ -89,6 +89,8 @@ function handle(msg) {
     S.catalog = msg.catalog; S.needs = msg.needs; S.tierLabels = msg.tierLabels; S.houseCap = msg.houseCap;
     S.sprites = msg.sprites || {}; S.districts = msg.districts || [];
     S.jobs = msg.jobs || {}; S.terrainMeta = msg.terrainMeta || {}; S.terrainSprites = msg.terrainSprites || {};
+    if (msg.terrain) S.terrain = msg.terrain;
+    S.reserve = msg.reserve || S.reserve || []; S.tileMax = msg.tileMax || S.tileMax || 100;
     S.day = msg.day; S.dayTicks = msg.dayTicks; S.tickInDay = msg.tickInDay; S.treasury = msg.treasury;
     if (msg.paper && msg.day > S.lastSeenDay) { S.lastSeenDay = msg.day; S.paper = msg.paper; renderPaper(); flashPaper(msg.day); }
     else if (msg.paper && !S.paper) { S.paper = msg.paper; renderPaper(); }
@@ -122,6 +124,7 @@ function renderPalette() {
     const types = [...new Set(S.needs.filter((n) => n.tier === t).flatMap((n) => n.providers))];
     addPaletteGroup(wrap, `${t}. ${S.tierLabels[t]}`, types);
   }
+  addPaletteGroup(wrap, '🪵 Добыча', ['sawmill', 'quarry']);
   addPaletteGroup(wrap, '💰 Экономика', ['factory']);
   updatePaletteState();
 }
@@ -134,19 +137,23 @@ function addPaletteGroup(wrap, title, types) {
     el.className = 'pal-item'; el.dataset.key = key;
     const up = def.upkeep ? ` · −${def.upkeep}/т` : '';
     const rng = def.range ? `${SHAPE_NAME[def.range.shape]} r${def.range.r}` : '';
-    el.title = [rng, def.upkeep ? `содержание ${def.upkeep}/тик` : '', def.emits ? '⚠ вредит соседям' : ''].filter(Boolean).join(' · ');
+    const prod = def.produces ? `добывает ${RES_NAME[def.produces.res] || def.produces.res}` : '';
+    el.title = [rng, prod, def.upkeep ? `содержание ${def.upkeep}/тик` : '', def.emits ? '⚠ вредит соседям' : ''].filter(Boolean).join(' · ');
+    const costBits = `$${def.cost}` + (def.wood ? ` 🪵${def.wood}` : '') + (def.stone ? ` 🪨${def.stone}` : '') + up;
     el.innerHTML = `<span class="pal-glyph" style="background:${COLORS[key] || '#ccc'}">${def.glyph}</span>
-      <span class="pal-meta"><span class="pal-name">${def.label}</span><span class="pal-cost">$${def.cost}${up}</span></span>`;
+      <span class="pal-meta"><span class="pal-name">${def.label}</span><span class="pal-cost">${costBits}</span></span>`;
     el.onclick = () => { S.selected = key; S.bulldoze = false; updatePaletteState(); };
     row.appendChild(el);
   }
   wrap.appendChild(row);
 }
 function updatePaletteState() {
+  const stock = S.stock || {};
   document.querySelectorAll('.pal-item').forEach((el) => {
     const def = S.catalog[el.dataset.key];
     el.classList.toggle('active', el.dataset.key === S.selected && !S.bulldoze);
-    el.classList.toggle('broke', def && S.treasury < def.cost); // не по карману казне
+    const broke = def && (S.treasury < def.cost || (stock.wood || 0) < (def.wood || 0) || (stock.stone || 0) < (def.stone || 0));
+    el.classList.toggle('broke', !!broke); // не хватает денег/дерева/камня
   });
   $('bulldozeBtn').classList.toggle('active', S.bulldoze);
 }
@@ -159,9 +166,12 @@ function netTag(el, net) {
 }
 function renderAssets() {
   const st = S.state, f = st.flows;
+  S.stock = st.stock || {};
   $('aMoney').textContent = st.treasury; netTag($('aMoneyNet'), f.net);
   $('aWater').textContent = st.stock ? st.stock.water : 0; netTag($('aWaterNet'), (f.waterProd || 0) - (f.waterCons || 0));
   $('aFood').textContent = st.stock ? st.stock.food : 0; netTag($('aFoodNet'), (f.foodProd || 0) - (f.foodCons || 0));
+  $('aWood').textContent = st.stock ? st.stock.wood : 0; netTag($('aWoodNet'), f.woodProd || 0);
+  $('aStone').textContent = st.stock ? st.stock.stone : 0; netTag($('aStoneNet'), f.stoneProd || 0);
   $('aPop').textContent = st.population;
   $('aEmployed').textContent = f.employed; $('aJobs').textContent = f.jobs;
   $('aFaith').textContent = st.faith != null ? st.faith : 0;
@@ -262,6 +272,8 @@ function covers(shape, dx, dy, r) {
   }
 }
 const SHAPE_NAME = { square: 'квадрат', diamond: 'ромб', circle: 'круг', cross: 'крест' };
+const RES_NAME = { water: 'воду', food: 'еду', wood: 'дерево', stone: 'камень' };
+const TERR_OF = { water: 'воды', food: 'травы', wood: 'леса', stone: 'камня' };
 
 function render() {
   if (!S.state) return;
@@ -276,12 +288,17 @@ function render() {
       const gspr = IMAGES['terrain:g'];
       if (gspr && gspr.ready) ctx.drawImage(gspr.img, x * CELL, y * CELL, CELL, CELL);
       else { ctx.fillStyle = (x + y) % 2 === 0 ? '#cfe0c3' : '#c6d9b9'; ctx.fillRect(x * CELL, y * CELL, CELL, CELL); }
-      // поверх — не-травяной ландшафт
+      // поверх — не-травяной ландшафт (с выцветанием по мере истощения)
       const code = S.terrain ? S.terrain[y * n + x] : 'g';
       if (code && code !== 'g') {
+        const idx = y * n + x;
+        const depl = (S.reserve && (code === 'f' || code === 'w' || code === 's'));
+        const frac = depl ? Math.max(0, Math.min(1, (S.reserve[idx] || 0) / (S.tileMax || 100))) : 1;
+        ctx.globalAlpha = depl ? (0.25 + 0.75 * frac) : 1; // почти пусто — тайл бледнеет к траве
         const spr = IMAGES['terrain:' + code];
         if (spr && spr.ready) ctx.drawImage(spr.img, x * CELL, y * CELL, CELL, CELL);
         else { ctx.fillStyle = (S.terrainMeta[code] && S.terrainMeta[code].color) || '#cfe0c3'; ctx.fillRect(x * CELL, y * CELL, CELL, CELL); }
+        ctx.globalAlpha = 1;
       }
       const d = districtById(dmap[y][x]);
       if (d) { ctx.globalAlpha = 0.1; ctx.fillStyle = d.color; ctx.fillRect(x * CELL, y * CELL, CELL, CELL); ctx.globalAlpha = 1; }
@@ -301,11 +318,12 @@ function render() {
     if (hc) drawCoverage(S.hover.x, S.hover.y, hc.type);
     else {
       const code = S.terrain ? S.terrain[S.hover.y * n + S.hover.x] : 'g';
-      const meta = S.terrainMeta[code];
-      if (!S.bulldoze && meta && meta.build === false) {
+      const def = S.catalog[S.selected];
+      const allow = (def && def.allow) || ['g', 'f'];
+      if (!S.bulldoze && def && !allow.includes(code)) {
         ctx.fillStyle = 'rgba(200,70,55,0.4)';
         ctx.fillRect(S.hover.x * CELL, S.hover.y * CELL, CELL, CELL);
-      } else { const def = S.catalog[S.selected]; if (def && (def.range || def.emits) && !S.bulldoze) drawCoverage(S.hover.x, S.hover.y, S.selected); }
+      } else if (def && (def.range || def.emits) && !S.bulldoze) drawCoverage(S.hover.x, S.hover.y, S.selected);
     }
   }
 
@@ -409,10 +427,16 @@ function updateTooltip() {
   const did = districtOf(S.hover.x, S.hover.y);
   const dName = districtById(did) ? districtById(did).name : '';
   if (!cell) {
-    const code = S.terrain ? S.terrain[S.hover.y * S.gridSize + S.hover.x] : 'g';
+    const idx = S.hover.y * S.gridSize + S.hover.x;
+    const code = S.terrain ? S.terrain[idx] : 'g';
     const tm = S.terrainMeta[code];
     const parts = [];
-    if (tm) parts.push(tm.label + (tm.build === false ? ' · не застроить' : ''));
+    if (tm) {
+      let lbl = tm.label;
+      if (S.reserve && (code === 'f' || code === 'w' || code === 's')) lbl += ` · запас ${Math.round(S.reserve[idx] || 0)}/${S.tileMax || 100}`;
+      if (tm.build === false) lbl += ' · не застроить';
+      parts.push(lbl);
+    }
     if (dName) parts.push('район «' + escapeHtml(dName) + '»');
     if (!parts.length) return hideTooltip();
     tip.innerHTML = `<span class="tip-lvl">${parts.join(' · ')}</span>`;
@@ -436,7 +460,8 @@ function updateTooltip() {
     }
     html += '</div>';
   } else if (def.range || def.kind === 'industry') {
-    if (def.range) html += `<div class="tip-lvl">зона: ${SHAPE_NAME[def.range.shape]} r${def.range.r} (+1 у дороги) · обслуживает домов: ${cell.served || 0}</div>`;
+    if (def.produces) html += `<div class="tip-lvl">добывает ${RES_NAME[def.produces.res]} из ${TERR_OF[def.produces.res]} в радиусе (${SHAPE_NAME[def.range.shape]} r${def.range.r})</div>`;
+    else if (def.range) html += `<div class="tip-lvl">зона: ${SHAPE_NAME[def.range.shape]} r${def.range.r} (+1 у дороги) · обслуживает домов: ${cell.served || 0}</div>`;
     if (def.output) html += `<div class="tip-lvl">коммерческий оборот +${def.output}</div>`;
     const jb = S.jobs[cell.type] || 0;
     html += `<div class="tip-lvl">${jb ? 'рабочих мест: ' + jb + ' · ' : ''}содержание ${def.upkeep || 0}/тик</div>`;

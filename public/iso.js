@@ -101,6 +101,8 @@ function handle(msg) {
     S.catalog = msg.catalog; S.needs = msg.needs; S.tierLabels = msg.tierLabels; S.houseCap = msg.houseCap;
     S.sprites = msg.sprites || {}; S.districts = msg.districts || [];
     S.jobs = msg.jobs || {}; S.terrainMeta = msg.terrainMeta || {}; S.terrainSprites = msg.terrainSprites || {};
+    if (msg.terrain) S.terrain = msg.terrain;
+    S.reserve = msg.reserve || S.reserve || []; S.tileMax = msg.tileMax || S.tileMax || 100;
     S.day = msg.day; S.dayTicks = msg.dayTicks; S.tickInDay = msg.tickInDay; S.treasury = msg.treasury;
     if (msg.paper && msg.day > S.lastSeenDay) { S.lastSeenDay = msg.day; S.paper = msg.paper; renderPaper(); flashPaper(msg.day); }
     else if (msg.paper && !S.paper) { S.paper = msg.paper; renderPaper(); }
@@ -266,13 +268,22 @@ function render() {
   const n = S.gridSize;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Земля — цветные ромбы + лёгкий тинт района
+  // Земля — цветные ромбы (выцветают по мере истощения) + лёгкий тинт района
   for (let gy = 0; gy < n; gy++)
     for (let gx = 0; gx < n; gx++) {
       const p = project(gx, gy);
-      const code = S.terrain ? S.terrain[gy * n + gx] : 'g';
+      const idx = gy * n + gx;
+      const code = S.terrain ? S.terrain[idx] : 'g';
       const col = (S.terrainMeta[code] && S.terrainMeta[code].color) || '#cfe0c3';
+      const depl = (S.reserve && (code === 'f' || code === 'w' || code === 's'));
+      if (depl) { // подложка-трава, чтобы истощённый тайл бледнел к ней
+        const g = (S.terrainMeta['g'] && S.terrainMeta['g'].color) || '#cfe0c3';
+        diamond(p.x, p.y); ctx.fillStyle = g; ctx.fill();
+      }
+      const frac = depl ? Math.max(0, Math.min(1, (S.reserve[idx] || 0) / (S.tileMax || 100))) : 1;
+      ctx.globalAlpha = depl ? (0.25 + 0.75 * frac) : 1;
       diamond(p.x, p.y); ctx.fillStyle = col; ctx.fill();
+      ctx.globalAlpha = 1;
       ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.07)'; ctx.stroke();
       const d = districtById(districtOf(gx, gy));
       if (d) { ctx.globalAlpha = 0.14; diamond(p.x, p.y); ctx.fillStyle = d.color; ctx.fill(); ctx.globalAlpha = 1; }
@@ -284,9 +295,10 @@ function render() {
     if (hc) drawCoverage(S.hover.x, S.hover.y, hc.type);
     else {
       const code = S.terrain ? S.terrain[S.hover.y * n + S.hover.x] : 'g';
-      const meta = S.terrainMeta[code];
-      if (!S.bulldoze && meta && meta.build === false) { const p = project(S.hover.x, S.hover.y); diamond(p.x, p.y); ctx.fillStyle = 'rgba(200,70,55,0.4)'; ctx.fill(); }
-      else { const def = S.catalog[S.selected]; if (def && (def.range || def.emits) && !S.bulldoze) drawCoverage(S.hover.x, S.hover.y, S.selected); }
+      const def = S.catalog[S.selected];
+      const allow = (def && def.allow) || ['g', 'f'];
+      if (!S.bulldoze && def && !allow.includes(code)) { const p = project(S.hover.x, S.hover.y); diamond(p.x, p.y); ctx.fillStyle = 'rgba(200,70,55,0.4)'; ctx.fill(); }
+      else if (def && (def.range || def.emits) && !S.bulldoze) drawCoverage(S.hover.x, S.hover.y, S.selected);
     }
     const p = project(S.hover.x, S.hover.y);
     diamond(p.x, p.y); ctx.strokeStyle = S.bulldoze ? '#d98a7a' : 'rgba(42,38,34,.75)'; ctx.lineWidth = 2; ctx.stroke();
@@ -395,10 +407,16 @@ function updateTooltip() {
   const did = districtOf(S.hover.x, S.hover.y);
   const dName = districtById(did) ? districtById(did).name : '';
   if (!cell) {
-    const code = S.terrain ? S.terrain[S.hover.y * S.gridSize + S.hover.x] : 'g';
+    const idx = S.hover.y * S.gridSize + S.hover.x;
+    const code = S.terrain ? S.terrain[idx] : 'g';
     const tm = S.terrainMeta[code];
     const parts = [];
-    if (tm) parts.push(tm.label + (tm.build === false ? ' · не застроить' : ''));
+    if (tm) {
+      let lbl = tm.label;
+      if (S.reserve && (code === 'f' || code === 'w' || code === 's')) lbl += ` · запас ${Math.round(S.reserve[idx] || 0)}/${S.tileMax || 100}`;
+      if (tm.build === false) lbl += ' · не застроить';
+      parts.push(lbl);
+    }
     if (dName) parts.push('район «' + escapeHtml(dName) + '»');
     if (!parts.length) return hideTooltip();
     tip.innerHTML = `<span class="tip-lvl">${parts.join(' · ')}</span>`;
