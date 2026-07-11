@@ -1,1 +1,1 @@
-Тайлы: grass/forest/water/stone.png (нет файла — цвет).
+Тайлы: grass/forest/water/stone.png.
