@@ -268,10 +268,13 @@ input[type="text"]:focus { outline: none; border-color: var(--brass); }
 #dayfill { height: 100%; width: 0; background: var(--brass); transition: width .4s linear; }
 
 /* ---------- Газета ---------- */
+.boardcol { display: flex; flex-direction: column; gap: 14px; }
 .paper {
-  margin-top: 18px; padding: 14px; border-radius: 12px;
+  margin-top: 0; padding: 14px; border-radius: 12px;
   background: #fbfaf5; border: 1px solid var(--line);
+  max-height: 220px; overflow-y: auto;
 }
+.boardcol .news { max-height: 150px; overflow-y: auto; }
 .paper.flash { animation: paperFlash 1s ease; }
 @keyframes paperFlash {
   0% { box-shadow: 0 0 0 0 rgba(217,164,65,.6); }
@@ -321,3 +324,10 @@ input[type="text"]:focus { outline: none; border-color: var(--brass); }
 .pal-item.broke .pal-cost { color: #b5533f; }
 
 .tip-bad { color: #e89b8f; }
+
+/* второй проход UI */
+.ren-btn { margin-left: auto; background: none; border: none; cursor: pointer; font-size: 12px; opacity: .6; }
+.ren-btn:hover { opacity: 1; }
+.hint-sm { font-size: 11px; color: var(--ink-soft); list-style: none; }
+.tip-sub { opacity: .7; font-size: 11px; }
+.assets .asset[data-res] { cursor: help; }

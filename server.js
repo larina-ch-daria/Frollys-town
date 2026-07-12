@@ -818,7 +818,7 @@ function serializeState(room) {
     terrain: room.terrain.join(''), reserve: room.reserve || [], tileMax: TILE_RESERVE, roads: room.roads || [],
     catalog: BUILDINGS, needs: NEEDS, tierLabels: TIER_LABEL, sprites: spriteMap, houseCap: HOUSE_CAP,
     jobs: JOBS, terrainMeta: TERRAIN, terrainSprites,
-    buildMeta: { maxTier: MAX_BUILD_TIER, upCostMult: UP_COST_MULT },
+    buildMeta: { maxTier: MAX_BUILD_TIER, upCostMult: UP_COST_MULT, schoolCap: SCHOOL_CAP, schoolCapStep: SCHOOL_CAP_STEP, schoolBaseR: BUILDINGS.school.range.r, eduThreshold: Math.round(EDU_THRESHOLD * 100) },
     districts: room.districts.map((d) => ({
       id: d.id, name: d.name, color: d.color, seed: d.seed,
       mods: Object.keys(d.mods), // активные модификаторы (иконки берутся из modIcons)
@@ -863,6 +863,8 @@ function handleMessage(ws, msg) {
     case 'bulldoze': return onBulldoze(ws, msg);
     case 'upgrade': return onUpgrade(ws, msg);
     case 'settax': return onSetTax(ws, msg);
+    case 'cursor': return onCursor(ws, msg);
+    case 'rename': return onRename(ws, msg);
     default: return send(ws, { type: 'error', message: 'Неизвестная команда' });
   }
 }
@@ -997,6 +999,19 @@ function onUpgrade(ws, msg) {  // кооп: улучшить может любо
   if (def.kind === 'house') cell.cap = houseCapForTier(cell.tier); // больше жильцов
   room.lastActive = Date.now();
   broadcast(room);
+}
+
+function onCursor(ws, msg) {   // релей курсора другим игрокам (без полного стейта)
+  const room = getRoom(ws); if (!room) return;
+  const p = room.players.get(ws.pid); if (!p) return;
+  const payload = JSON.stringify({ type: 'cursor', pid: ws.pid, x: msg.x, y: msg.y, color: p.color });
+  for (const other of room.players.values()) if (other.ws && other.ws !== ws && other.ws.readyState === WebSocket.OPEN) other.ws.send(payload);
+}
+function onRename(ws, msg) {   // переименование района
+  const room = getRoom(ws); if (!room) return;
+  const d = room.districts.find((x) => x.id === msg.id); if (!d) return;
+  const name = String(msg.name || '').trim().slice(0, 24);
+  if (name) { d.name = name; room.lastActive = Date.now(); broadcast(room); }
 }
 
 function onSetTax(ws, msg) {

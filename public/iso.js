@@ -29,6 +29,7 @@ const S = {
   catalog: {}, needs: [], tierLabels: {}, sprites: {}, houseCap: 5,
   jobs: {}, terrain: '', terrainMeta: {}, terrainSprites: {},
   districts: [], paper: null, day: 0, dayTicks: 8, tickInDay: 0, lastSeenDay: 0,
+  cursors: {},
   treasury: 0,
 };
 const IMAGES = {};
@@ -90,6 +91,7 @@ function syncSprites() {
 // ---------- Сообщения ----------
 function handle(msg) {
   if (msg.type === 'error') return showToast(msg.message);
+  if (msg.type === 'cursor') { if (msg.pid !== S.pid) { S.cursors[msg.pid] = { x: msg.x, y: msg.y, color: msg.color, ts: Date.now() }; render(); } return; }
   if (msg.type === 'joined') {
     S.pid = msg.pid; S.code = msg.code; saveSession();
     if (msg.gridSize) S.gridSize = msg.gridSize;
@@ -116,7 +118,7 @@ function handle(msg) {
     else if (msg.paper && !S.paper) { S.paper = msg.paper; renderPaper(); }
     syncSprites();
     if (!$('palette').childElementCount) renderPalette();
-    renderAssets(); renderBudget(); renderTaxes(); renderScoreboard(); renderDayline(); render();
+    renderAssets(); renderBudget(); renderTaxes(); renderScoreboard(); renderDistrictsList(); renderDayline(); render();
   }
 }
 
@@ -252,6 +254,46 @@ function renderScoreboard() {
 }
 function renderDayline() { $('dayLabel').textContent = `День ${S.day}`; $('dayfill').style.width = `${(S.tickInDay / S.dayTicks) * 100}%`; }
 
+function renderDistrictsList() {
+  const ul = $('districts'); if (!ul) return; ul.innerHTML = '';
+  if (!S.districts.length) { ul.innerHTML = '<li class="hint-sm">районы появятся с ростом населения</li>'; return; }
+  for (const d of S.districts) {
+    const li = document.createElement('li'); li.className = 'player-row';
+    li.innerHTML = `<span class="dot" style="background:${d.color}"></span><span class="player-name">${escapeHtml(d.name)}</span><button class="ren-btn" title="Переименовать">✏️</button>`;
+    li.querySelector('.ren-btn').onclick = () => {
+      const name = prompt('Новое имя района:', d.name);
+      if (name && name.trim()) wsSend({ type: 'rename', id: d.id, name: name.trim() });
+    };
+    ul.appendChild(li);
+  }
+}
+
+function assetTipHtml(res) {
+  const f = (S.state && S.state.flows) || {}, d = S.dayTicks || 8, day = (v) => Math.round((v || 0) * d);
+  const sign = (v) => (v >= 0 ? '+' : '') + v;
+  if (res === 'money') return `<b>💰 Казна</b>`
+    + `<div class="tip-lvl">приход +${f.revenue || 0}/тик · за день +${day(f.revenue)}</div>`
+    + `<div class="tip-lvl tip-sub">жилой ${f.residential || 0} · коммерческий ${f.commercial || 0} · имущественный ${f.property || 0}</div>`
+    + `<div class="tip-lvl">расход −${f.upkeep || 0}/тик (содержание) · за день −${day(f.upkeep)}</div>`
+    + `<div class="tip-lvl">итого ${sign(f.net || 0)}/тик · за день ${sign(day(f.net))}</div>`;
+  if (res === 'water') return `<b>💧 Вода</b><div class="tip-lvl">+${f.waterProd || 0}/тик колодцы · за день +${day(f.waterProd)}</div><div class="tip-lvl">−${f.waterCons || 0}/тик жители · за день −${day(f.waterCons)}</div>`;
+  if (res === 'food') return `<b>🍞 Еда</b><div class="tip-lvl">+${f.foodProd || 0}/тик фермы · за день +${day(f.foodProd)}</div><div class="tip-lvl">−${f.foodCons || 0}/тик жители · за день −${day(f.foodCons)}</div>`;
+  if (res === 'wood') return `<b>🪵 Дерево</b><div class="tip-lvl">+${f.woodProd || 0}/тик лесопилки · за день +${day(f.woodProd)}</div>`;
+  if (res === 'stone') return `<b>🪨 Камень</b><div class="tip-lvl">+${f.stoneProd || 0}/тик каменоломни · за день +${day(f.stoneProd)}</div>`;
+  return '';
+}
+function bindAssetTips() {
+  document.querySelectorAll('#assets .asset[data-res]').forEach((el) => {
+    el.addEventListener('mouseenter', () => {
+      if (!S.state) return;
+      const tip = $('tooltip'); tip.innerHTML = assetTipHtml(el.dataset.res); tip.hidden = false;
+      const r = el.getBoundingClientRect(); tip.style.left = r.left + 'px'; tip.style.top = (r.bottom + 6) + 'px';
+    });
+    el.addEventListener('mouseleave', hideTooltip);
+  });
+}
+
+
 // ---------- Газета ----------
 const KIND_ICON = { snob: '💅', crime: '🚨', boom: '📈', exodus: '📉', reform: '🗺', quiet: '☕', epidemic: '🦠', festival: '🎉', gridlock: '🚧', district: '🏙' };
 function renderPaper() {
@@ -308,6 +350,26 @@ function inCityClient(x, y) {
 }
 const TERR_OF = { water: 'воды', food: 'травы', wood: 'леса', stone: 'камня' };
 
+function schoolHighlight(sx, sy, cell) {
+  const bm = S.buildMeta || {}, tier = cell.tier || 1;
+  const r = (bm.schoolBaseR || 3) + (tier - 1);
+  let cap = (bm.schoolCap || 20) + (tier - 1) * (bm.schoolCapStep || 10);
+  const inZone = [];
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    const x = sx + dx, y = sy + dy, c = S.state.grid[`${x},${y}`];
+    if (c && c.type === 'house' && (c.pop || 0) > 0) inZone.push({ x, y, pop: c.pop, edu: c.edu || 0 });
+  }
+  inZone.sort((a, b) => b.pop - a.pop);
+  const educated = [], learning = [], blocked = [];
+  for (const h of inZone) {
+    const served = cap > 0; if (served) cap -= h.pop;
+    if (served) (h.edu >= 100 ? educated : learning).push(h);
+    else blocked.push(h);
+  }
+  return { educated, learning, blocked };
+}
+const EDU_COLORS = { educated: '#2e9e5b', learning: '#3b82f6', blocked: '#c0392b' };
+function otherCursors() { const out = []; const now = Date.now(); for (const pid in S.cursors) { const c = S.cursors[pid]; if (now - c.ts < 5000) out.push(c); } return out; }
 function render() {
   if (!S.state) return;
   const n = S.gridSize;
@@ -376,17 +438,16 @@ function render() {
   for (const c of cells) drawCell(c.x, c.y, c.cell);
 
   for (const d of S.districts) drawDistrictLabel(d);
-}
-function fillZone(cx, cy, shape, r, color) {
-  const n = S.gridSize;
-  ctx.fillStyle = color;
-  for (let dy = -r; dy <= r; dy++)
-    for (let dx = -r; dx <= r; dx++) {
-      if (!covers(shape, dx, dy, r)) continue;
-      const x = cx + dx, y = cy + dy;
-      if (x < 0 || y < 0 || x >= n || y >= n) continue;
-      const p = project(x, y); diamond(p.x, p.y); ctx.fill();
+
+  if (S.hover) {
+    const hc = S.state.grid[`${S.hover.x},${S.hover.y}`];
+    if (hc && hc.type === 'school') {
+      const g = schoolHighlight(S.hover.x, S.hover.y, hc);
+      ctx.lineWidth = 3;
+      for (const kind of ['educated', 'learning', 'blocked']) { ctx.strokeStyle = EDU_COLORS[kind]; for (const h of g[kind]) { const p = project(h.x, h.y); diamond(p.x, p.y); ctx.stroke(); } }
     }
+  }
+  for (const c of otherCursors()) { const p = project(c.x, c.y), px = p.x, py = p.y + TH / 2; ctx.fillStyle = c.color || '#888'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 10, py + 4); ctx.lineTo(px + 4, py + 10); ctx.closePath(); ctx.fill(); ctx.stroke(); }
 }
 function drawCoverage(cx, cy, type) {
   const def = S.catalog[type]; if (!def) return;
@@ -462,8 +523,10 @@ function initCanvas() {
     const t = tileFromEvent(e);
     if (t && (!S.hover || t.x !== S.hover.x || t.y !== S.hover.y)) { S.hover = t; render(); }
     updateTooltip();
+    if (t) { const now = Date.now(); if (now - (S._curTs || 0) > 80) { S._curTs = now; wsSend({ type: 'cursor', x: t.x, y: t.y }); } }
   });
   canvas.addEventListener('mouseleave', () => { S.hover = null; hideTooltip(); render(); });
+  bindAssetTips();
   canvas.addEventListener('click', (e) => {
     const t = tileFromEvent(e); if (!t) return;
     if (S.upgrade) wsSend({ type: 'upgrade', x: t.x, y: t.y });
