@@ -31,19 +31,19 @@ const BUILDINGS = {
   center:  { cost: 0,   kind: 'center',   glyph: '🚩', label: 'Центр города', upkeep: 0, allow: ['g', 'f'] },
   road:    { cost: 5,   kind: 'road',     glyph: '🛣', label: 'Дорога',   upkeep: 0, layer: true, allow: ['g', 'f'] },
   house:   { cost: 50,  kind: 'house',    glyph: '🏠', label: 'Дом',      upkeep: 0, wood: 5 },
-  well:    { cost: 60,  kind: 'provider', glyph: '💧', label: 'Колодец',  upkeep: 2, wood: 2, stone: 3, range: { shape: 'diamond', r: 3 }, produces: { res: 'water', from: 'w', mode: 'flat' } },
-  farm:    { cost: 60,  kind: 'provider', glyph: '🌾', label: 'Ферма',    upkeep: 2, wood: 3, allow: ['g'], range: { shape: 'square',  r: 3 }, produces: { res: 'food', from: 'g', mode: 'perTile' } },
-  sawmill: { cost: 40,  kind: 'provider', glyph: '🪚', label: 'Лесопилка', upkeep: 2, range: { shape: 'square', r: 3 }, produces: { res: 'wood', from: 'f', mode: 'perTile' } },
-  quarry:  { cost: 40,  kind: 'provider', glyph: '⛏', label: 'Каменоломня', upkeep: 2, wood: 4, range: { shape: 'square', r: 3 }, produces: { res: 'stone', from: 's', mode: 'perTile' } },
+  well:    { cost: 60,  kind: 'provider', glyph: '💧', label: 'Колодец',  upkeep: 2, wood: 2, stone: 3, range: { shape: 'square', r: 2 }, produces: { res: 'water', model: 'well', from: 'w' } },
+  farm:    { cost: 60,  kind: 'provider', glyph: '🌾', label: 'Ферма',    upkeep: 2, wood: 3, allow: ['g'], range: { shape: 'square', r: 2 }, produces: { res: 'food', model: 'farm' } },
+  sawmill: { cost: 40,  kind: 'provider', glyph: '🪚', label: 'Лесопилка', upkeep: 2, range: { shape: 'square', r: 3 }, produces: { res: 'wood', model: 'perTile', from: 'f' } },
+  quarry:  { cost: 40,  kind: 'provider', glyph: '⛏', label: 'Каменоломня', upkeep: 2, wood: 4, range: { shape: 'square', r: 3 }, produces: { res: 'stone', model: 'perTile', from: 's' } },
   clinic:  { cost: 120, kind: 'provider', glyph: '🏥', label: 'Клиника',  upkeep: 5, wood: 4, stone: 6, range: { shape: 'circle',  r: 4 } },
   police:  { cost: 120, kind: 'provider', glyph: '🚓', label: 'Полиция',  upkeep: 5, wood: 4, stone: 6, range: { shape: 'circle',  r: 4 } },
   park:    { cost: 40,  kind: 'provider', glyph: '🌳', label: 'Парк',     upkeep: 1, wood: 2, range: { shape: 'circle',  r: 3 } },
   cafe:    { cost: 80,  kind: 'provider', glyph: '☕', label: 'Кафе',     upkeep: 3, wood: 4, stone: 2, range: { shape: 'diamond', r: 2 }, commercial: true, emits: [{ label: 'шум', shape: 'diamond', r: 2, happy: -6 }] },
   shop:    { cost: 100, kind: 'provider', glyph: '🏪', label: 'Магазин',  upkeep: 3, wood: 4, stone: 4, range: { shape: 'square',  r: 3 }, commercial: true },
   gym:     { cost: 100, kind: 'provider', glyph: '🏋', label: 'Спортзал', upkeep: 3, wood: 4, stone: 4, range: { shape: 'diamond', r: 3 }, commercial: true, emits: [{ label: 'шум', shape: 'square', r: 1, happy: -5 }] },
-  school:  { cost: 150, kind: 'provider', glyph: '🏫', label: 'Школа',    upkeep: 4, wood: 6, stone: 6, range: { shape: 'cross',   r: 5 } },
+  school:  { cost: 150, kind: 'provider', glyph: '🏫', label: 'Школа',    upkeep: 4, wood: 6, stone: 6, range: { shape: 'square',  r: 3 } },
   theater: { cost: 150, kind: 'provider', glyph: '🎭', label: 'Театр',    upkeep: 5, wood: 6, stone: 8, range: { shape: 'circle',  r: 4 }, commercial: true, emits: [{ label: 'шум', shape: 'circle', r: 2, happy: -10 }] },
-  factory: { cost: 140, kind: 'industry', glyph: '🏭', label: 'Завод',    upkeep: 4, wood: 4, stone: 10, output: 12, emits: [{ label: 'загрязнение', shape: 'circle', r: 3, happy: -20, negates: 'health' }] },
+  factory: { cost: 140, kind: 'industry', glyph: '🏭', label: 'Завод',    upkeep: 4, wood: 4, stone: 10, output: 12, emits: [{ label: 'шум', shape: 'circle', r: 3, happy: -8 }] },
   church:  { cost: 130, kind: 'faith',    glyph: '⛪', label: 'Церковь',  upkeep: 4, wood: 4, stone: 8, range: { shape: 'circle', r: 3 } },
 };
 
@@ -62,10 +62,11 @@ const SOCIAL_PROVIDERS = new Set(NEEDS.filter((n) => n.tier === 3 || n.tier === 
 const SERVICE_FEE = 1;           // «оборот» коммерческого провайдера за обслуженный дом
 
 // Ресурсы-склад (еда/вода): производители льют в общий пул, жители потребляют.
-const WATER_PER_WELL = 6;        // производство воды колодцем за тик
-const FOOD_PER_GRASS = 0.5;      // еда фермы = FOOD_PER_GRASS × тайлов травы в её радиусе
-const WOOD_PER_FOREST = 0.5;     // дерево лесопилки = × тайлов леса в радиусе
-const STONE_PER_ROCK = 0.5;      // камень каменоломни = × тайлов камня в радиусе
+// Добыча — целые числа, по спецификации плейтеста
+const FARM_BASE = 5, FARM_PER_GRASS = 1, FARM_R = 2;   // ферма: +5 база, +1 за пустой тайл травы, квадрат r2 (+1/уровень)
+const WELL_BASE = [5, 10, 15], WELL_PER = [1, 2, 3], WELL_R = [2, 3, 4]; // колодец по уровню: база / за тайл воды / радиус
+const WOOD_PER_FOREST = 1;       // дерево лесопилки = × тайлов леса в радиусе (истощаемо)
+const STONE_PER_ROCK = 1;        // камень каменоломни = × тайлов камня в радиусе (истощаемо)
 const CONSUME_WATER = 1;         // потребление воды на жителя за тик
 const CONSUME_FOOD = 1;          // потребление еды на жителя за тик
 const STOCK_CAP = 999;           // потолок склада
@@ -74,7 +75,7 @@ const TILE_RESERVE = {                              // запас ресурса
   s: parseInt(process.env.TILE_RESERVE_STONE || '100', 10),
   w: parseInt(process.env.TILE_RESERVE_WATER || '1500', 10),
 };
-const RES_RATE = { water: WATER_PER_WELL, food: FOOD_PER_GRASS, wood: WOOD_PER_FOREST, stone: STONE_PER_ROCK };
+const RES_RATE = { wood: WOOD_PER_FOREST, stone: STONE_PER_ROCK };
 const START_WOOD = parseInt(process.env.START_WOOD || '30', 10);   // стартовый запас дерева
 const START_STONE = parseInt(process.env.START_STONE || '20', 10); // стартовый запас камня
 const FAITH_PER_POP = 2;         // вера = население × коэффициент
@@ -85,10 +86,12 @@ const FAITH_RADIUS_COEF = parseFloat(process.env.FAITH_RADIUS_COEF || '0.15');  
 const EDU_DAYS = 3;                 // дней в зоне школы до полной образованности дома
 const EDU_DECAY = 0.34;             // спад образованности за день без школы
 const EDU_THRESHOLD = 0.6;          // с какой доли дом считается образованным (право на апгрейд)
-const SCHOOL_CAP = 20;              // сколько жителей учит школа (× уровень)
+const SCHOOL_CAP = 20;              // сколько жителей учит школа на 1 уровне
+const SCHOOL_CAP_STEP = 10;         // +вместимости школы за уровень (20 → 30 → 40)
+const BASIC_COMFORT = 12;           // бонус к счастью, когда закрыты вода+еда (чтобы дом заселялся без клиники/полиции)
 const KNOWLEDGE_FAITH_COST = 1.5;   // сколько веры съедает один образованный житель
 const CHURCH_CAP = 15;              // сколько жителей окормляет церковь (× уровень)
-const CHURCH_FAITH_PER = 2;         // вера за окормлённого церковью жителя
+const CHURCH_FAITH_PER = 1;         // вера за окормлённого церковью жителя (снижено после плейтеста)
 const PROD_EDU_SHARE = 0.4;         // доля образованных в районе для апгрейда производств
 
 // Рабочие места по типам зданий (жители едут только на свободные)
@@ -252,7 +255,13 @@ function cityFaith(room) {
   const base = cityPop(room) * FAITH_PER_POP + churchFaith(room) - cityKnowledge(room) * KNOWLEDGE_FAITH_COST;
   return Math.max(0, base); // пол веры: базовый радиус неприкосновенен
 }
-function cityRadius(room) { return FAITH_BASE_RADIUS + Math.floor(cityFaith(room) * FAITH_RADIUS_COEF); }
+const FAITH_SOFT_RADIUS = 5;        // сверх этого радиуса каждая клетка стоит втрое больше веры
+function cityRadius(room) {
+  const bonus = cityFaith(room) * FAITH_RADIUS_COEF;
+  const cheap = Math.max(0, FAITH_SOFT_RADIUS - FAITH_BASE_RADIUS);
+  const extra = bonus <= cheap ? bonus : cheap + (bonus - cheap) / 3; // за мягким пределом — втрое дороже
+  return FAITH_BASE_RADIUS + Math.floor(extra);
+}
 function inCity(room, x, y) { if (!room.center) return false; const dx = x - room.center.x, dy = y - room.center.y, R = cityRadius(room); return dx * dx + dy * dy <= R * R + R; }
 // Дороги — слой поверх тайлов (room.roads: 0/1). Здание работает, только если рядом (по стороне) есть дорога.
 function roadAt(room, x, y) { return !!(room.roads && x >= 0 && y >= 0 && x < GRID_SIZE && y < GRID_SIZE && room.roads[y * GRID_SIZE + x]); }
@@ -276,30 +285,47 @@ function extractResources(room) {
     const pr = def.produces, [px, py] = k.split(',').map(Number);
     if (!roadNeighbor(room, px, py)) continue; // нет дороги — не работает
     const nearRoad = neighbors(px, py).some(([nx, ny]) => roadSet.has(`${nx},${ny}`));
-    const r = def.range.r + (nearRoad ? 1 : 0) + (tierOf(cell) - 1), rate = RES_RATE[pr.res] * tierMult(cell);
-    // еда: трава не истощается
-    if (pr.from === 'g') {
-      let count = 0;
+    const tier = tierOf(cell);
+
+    if (pr.model === 'farm') { // +5 база и +1 за каждый пустой (не занятой) тайл травы; квадрат r2 (+1/уровень)
+      const r = FARM_R + (tier - 1) + (nearRoad ? 1 : 0);
+      let empty = 0;
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-        if (!covers(def.range.shape, dx, dy, r)) continue;
-        const gx = px + dx, gy = py + dy;
-        if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
-        if (room.terrain[gy * n + gx] === 'g') count += 1;
+        const gx = px + dx, gy = py + dy; if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+        if (room.terrain[gy * n + gx] !== 'g') continue;
+        if (room.grid.has(`${gx},${gy}`) || roadAt(room, gx, gy)) continue; // занятой тайл не считаем
+        empty += 1;
       }
-      out.food += count * rate; continue;
+      out.food += FARM_BASE + empty * FARM_PER_GRASS;
+      continue;
     }
-    // истощаемые: вода/дерево/камень — тянем из запаса тайлов
-    let got = 0; const flat = pr.mode === 'flat';
-    for (let dy = -r; dy <= r && (!flat || got < rate); dy++)
-      for (let dx = -r; dx <= r && (!flat || got < rate); dx++) {
-        if (!covers(def.range.shape, dx, dy, r)) continue;
+
+    if (pr.model === 'well') { // база по уровню + N за каждый тайл воды в радиусе (истощаемо)
+      const r = WELL_R[tier - 1] + (nearRoad ? 1 : 0), per = WELL_PER[tier - 1];
+      let got = WELL_BASE[tier - 1];
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
         const gx = px + dx, gy = py + dy; if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
         const idx = gy * n + gx;
-        if (room.terrain[idx] !== pr.from || room.reserve[idx] <= 0) continue;
-        const take = flat ? Math.min(room.reserve[idx], rate - got) : Math.min(room.reserve[idx], rate);
+        if (room.terrain[idx] !== 'w' || room.reserve[idx] <= 0) continue;
+        const take = Math.min(room.reserve[idx], per);
         room.reserve[idx] -= take; got += take;
         if (room.reserve[idx] <= 0) depleted.push(idx);
       }
+      out.water += got;
+      continue;
+    }
+
+    // perTile: лес/камень — по 1×уровень за тайл, истощаемо; квадрат r (+1/уровень)
+    const r = def.range.r + (nearRoad ? 1 : 0) + (tier - 1), per = (RES_RATE[pr.res] || 1) * tier;
+    let got = 0;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const gx = px + dx, gy = py + dy; if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+      const idx = gy * n + gx;
+      if (room.terrain[idx] !== pr.from || room.reserve[idx] <= 0) continue;
+      const take = Math.min(room.reserve[idx], per);
+      room.reserve[idx] -= take; got += take;
+      if (room.reserve[idx] <= 0) depleted.push(idx);
+    }
     out[pr.res] += got;
   }
   // опустевшие тайлы становятся травой
@@ -440,6 +466,7 @@ function computeSim(room) {
     ambient[d.id] = (s.eco - ECO_BASE) / 50 * ECO_HAPPY - (s.crime / 100) * CRIME_HAPPY;
   }
 
+  const eduServed = schoolCoverage(room); // дома под вместимостью школ (для «Развития» и образования)
   for (const h of houses) {
     const hDist = dOf.get(h.k);
     const inRangeTypes = new Set();
@@ -456,10 +483,13 @@ function computeSim(room) {
     for (const need of NEEDS) needs[need.key] = need.providers.some((t) => inRangeTypes.has(t));
     needs.water = !waterShort;   // покрытие воды/еды — от общего склада, не от радиуса
     needs.food = !foodShort;
+    // #15: школа закрывает «Развитие» только в пределах своей вместимости (театр — без лимита)
+    if (needs.growth && !inRangeTypes.has('theater') && inRangeTypes.has('school') && !eduServed.has(h.k)) needs.growth = false;
     for (const ev of EVENTS) if (ev.houseNeed && mHas(hDist, ev.id)) ev.houseNeed(needs);
 
     // Вредные воздействия: гасят показатель и/или счастье
     let extra = -unempPenalty;
+    if (needs.water && needs.food) extra += BASIC_COMFORT; // #4: базовый комфорт → дом заселяется без клиники/полиции
     extra += ambient[hDist] || 0; // фон района: экология/шум/преступность
     const hActive = roadNeighbor(room, h.x, h.y);
     if (!hActive) extra -= NO_ROAD_PENALTY; // нет дороги рядом — дом отрезан
@@ -709,6 +739,12 @@ function runDay(room) {
   const rank = [...room.districts].sort((a, b) => prosperity[b.id] - prosperity[a.id]);
   const worst = [...room.districts].sort((a, b) => b.crime - a.crime)[0];
   updateEducation(room);
+  for (const [k, c] of room.grid) { // #5: дом вне радиуса влияния >2 дней — жители уезжают
+    if (c.type !== 'house') continue;
+    const [x, y] = k.split(',').map(Number);
+    if (!inCity(room, x, y)) { c.outDays = (c.outDays || 0) + 1; if (c.outDays > 2 && (c.pop || 0) > 0) { c.pop = 0; c.edu = 0; } }
+    else c.outDays = 0;
+  }
   room.day = (room.day || 0) + 1;
   room.paper = {
     day: room.day,
@@ -720,24 +756,28 @@ function runDay(room) {
   };
 }
 
-function updateEducation(room) {
-  const def = BUILDINGS.school;
-  const served = new Set();
+function schoolCapacity(cell) { return SCHOOL_CAP + (tierOf(cell) - 1) * SCHOOL_CAP_STEP; }
+function schoolCoverage(room) { // дома, реально попадающие под вместимость школ (крупные первыми)
+  const def = BUILDINGS.school, served = new Set();
   for (const [k, c] of room.grid) {
     if (c.type !== 'school') continue;
     const [sx, sy] = k.split(',').map(Number);
-    if (!roadNeighbor(room, sx, sy)) continue;       // школа без дороги не работает
+    if (!roadNeighbor(room, sx, sy)) continue;
     const r = def.range.r + (tierOf(c) - 1);
-    let capLeft = SCHOOL_CAP * tierOf(c);
+    let cap = schoolCapacity(c);
     const inZone = [];
     for (const [hk, hc] of room.grid) {
       if (hc.type !== 'house' || !hc.pop) continue;
       const [hx, hy] = hk.split(',').map(Number);
       if (covers(def.range.shape, hx - sx, hy - sy, r)) inZone.push({ hk, pop: hc.pop });
     }
-    inZone.sort((a, b) => b.pop - a.pop);            // крупные дома учим первыми
-    for (const h of inZone) { if (capLeft <= 0) break; served.add(h.hk); capLeft -= h.pop; }
+    inZone.sort((a, b) => b.pop - a.pop);
+    for (const h of inZone) { if (cap <= 0) break; served.add(h.hk); cap -= h.pop; }
   }
+  return served;
+}
+function updateEducation(room) {
+  const served = schoolCoverage(room);
   for (const [hk, hc] of room.grid) {
     if (hc.type !== 'house') continue;
     if (served.has(hk)) hc.edu = Math.min(1, (hc.edu || 0) + 1 / EDU_DAYS);
@@ -921,6 +961,7 @@ function onBulldoze(ws, msg) {  // кооп: снести может любой
     return;
   }
   if (cell.type === 'center') return send(ws, { type: 'error', message: 'Центр города нельзя снести' });
+  if (cell.type === 'house' && !inCity(room, x, y)) return send(ws, { type: 'error', message: 'Дом вне радиуса влияния — сначала верните веру' });
   const def = BUILDINGS[cell.type];
   if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };
   room.treasury += Math.floor((def ? def.cost : 0) / 2);        // возврат 50% денег и ресурсов
@@ -940,6 +981,7 @@ function onUpgrade(ws, msg) {  // кооп: улучшить может любо
   if (!isUpgradable(cell.type)) return send(ws, { type: 'error', message: 'Это здание не улучшается' });
   const tier = tierOf(cell);
   if (tier >= MAX_BUILD_TIER) return send(ws, { type: 'error', message: 'Уже максимальный уровень' });
+  if (!inCity(room, x, y)) return send(ws, { type: 'error', message: 'Здание вне радиуса влияния — сначала верните веру' });
   const def = BUILDINGS[cell.type];
   // Образование как условие апгрейда: дома — свои жители, производства — район
   if (def.kind === 'house' && (cell.edu || 0) < EDU_THRESHOLD)
@@ -972,7 +1014,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
     const sim = computeSim(room);
-    room.treasury += sim.flows.net;
+    room.treasury = Math.floor(room.treasury + sim.flows.net);
     if (room.treasury < 0) { room.treasury = 0; room.deficit = true; } else room.deficit = false;
 
     // Склад ресурсов: добыча с истощением тайлов − потребление жителями
