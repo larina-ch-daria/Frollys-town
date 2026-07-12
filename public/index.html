@@ -35,7 +35,8 @@
       <span class="asset" title="Камень"><span class="ae">🪨</span><b id="aStone">0</b><i id="aStoneNet" class="anet"></i></span>
       <span class="asset" title="Жители"><span class="ae">👥</span><b id="aPop">0</b></span>
       <span class="asset" title="Занятые / рабочие места"><span class="ae">💼</span><b id="aEmployed">0</b>/<b id="aJobs">0</b></span>
-      <span class="asset" title="Вера (население × коэффициент)"><span class="ae">✨</span><b id="aFaith">0</b></span>
+      <span class="asset" title="Вера (население + церкви − знания)"><span class="ae">✨</span><b id="aFaith">0</b></span>
+      <span class="asset" title="Знания (образованные жители; понижают веру)"><span class="ae">🎓</span><b id="aKnow">0</b></span>
     </div>
     <div class="stage">
     <div class="board-wrap">
@@ -83,6 +84,7 @@
       <div class="dayline"><span id="dayLabel">День 0</span><div class="daybar"><div id="dayfill"></div></div></div>
 
       <div class="palette" id="palette"></div>
+      <button id="upgradeBtn" class="btn btn-ghost tool">⬆️ Улучшить</button>
       <button id="bulldozeBtn" class="btn btn-ghost tool">🧨 Снос (возврат 50%)</button>
 
       <div class="scoreboard"><h2>Игроки</h2><ul id="players"></ul></div>

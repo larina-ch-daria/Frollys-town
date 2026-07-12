@@ -24,7 +24,7 @@ const S = {
   ws: null, connected: false, outbox: [],
   pid: null, code: null, hostPid: null,
   gridSize: 18, state: null,
-  selected: 'house', bulldoze: false,
+  selected: 'house', bulldoze: false, upgrade: false,
   hover: null, mouse: { x: 0, y: 0 },
   catalog: {}, needs: [], tierLabels: {}, sprites: {}, houseCap: 5,
   jobs: {}, terrain: '', terrainMeta: {}, terrainSprites: {},
@@ -101,6 +101,7 @@ function handle(msg) {
     S.catalog = msg.catalog; S.needs = msg.needs; S.tierLabels = msg.tierLabels; S.houseCap = msg.houseCap;
     S.sprites = msg.sprites || {}; S.districts = msg.districts || []; S.modIcons = msg.modIcons || S.modIcons || {};
     S.jobs = msg.jobs || {}; S.terrainMeta = msg.terrainMeta || {}; S.terrainSprites = msg.terrainSprites || {};
+    S.buildMeta = msg.buildMeta || S.buildMeta || { maxTier: 3, upCostMult: 0.8 };
     if (msg.terrain) S.terrain = msg.terrain;
     S.reserve = msg.reserve || S.reserve || []; S.tileMax = msg.tileMax || S.tileMax || {};
     S.roads = msg.roads || S.roads || [];
@@ -146,6 +147,7 @@ function renderPalette() {
   }
   addPaletteGroup(wrap, '🪵 Добыча', ['sawmill', 'quarry']);
   addPaletteGroup(wrap, '💰 Экономика', ['factory']);
+  addPaletteGroup(wrap, '✨ Вера', ['church']);
   updatePaletteState();
 }
 function addPaletteGroup(wrap, title, types) {
@@ -162,7 +164,7 @@ function addPaletteGroup(wrap, title, types) {
     const costBits = `$${def.cost}` + (def.wood ? ` 🪵${def.wood}` : '') + (def.stone ? ` 🪨${def.stone}` : '') + up;
     el.innerHTML = `<span class="pal-glyph" style="background:${COLORS[key] || '#ccc'}">${def.glyph}</span>
       <span class="pal-meta"><span class="pal-name">${def.label}</span><span class="pal-cost">${costBits}</span></span>`;
-    el.onclick = () => { S.selected = key; S.bulldoze = false; updatePaletteState(); };
+    el.onclick = () => { S.selected = key; S.bulldoze = false; S.upgrade = false; updatePaletteState(); };
     row.appendChild(el);
   }
   wrap.appendChild(row);
@@ -171,12 +173,13 @@ function updatePaletteState() {
   const stock = S.stock || {};
   document.querySelectorAll('.pal-item').forEach((el) => {
     const def = S.catalog[el.dataset.key];
-    el.classList.toggle('active', el.dataset.key === S.selected && !S.bulldoze);
+    el.classList.toggle('active', el.dataset.key === S.selected && !S.bulldoze && !S.upgrade);
     let broke = def && (S.treasury < def.cost || (stock.wood || 0) < (def.wood || 0) || (stock.stone || 0) < (def.stone || 0));
     if (!S.center && el.dataset.key !== 'center') broke = true; // пока нет центра — только флаг
     el.classList.toggle('broke', !!broke);
   });
   $('bulldozeBtn').classList.toggle('active', S.bulldoze);
+  const ub = $('upgradeBtn'); if (ub) ub.classList.toggle('active', S.upgrade);
 }
 
 // ---------- Бюджет / налоги / счёт / день ----------
@@ -196,6 +199,7 @@ function renderAssets() {
   $('aPop').textContent = st.population;
   $('aEmployed').textContent = f.employed; $('aJobs').textContent = f.jobs;
   $('aFaith').textContent = st.faith != null ? st.faith : 0;
+  { const el = $('aKnow'); if (el) el.textContent = st.knowledge != null ? st.knowledge : 0; }
   const short = st.short || {};
   $('aWater').parentElement.classList.toggle('short', !!short.water);
   $('aFood').parentElement.classList.toggle('short', !!short.food);
@@ -421,6 +425,10 @@ function drawCell(x, y, cell) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(`${cell.pop || 0}/${cell.cap || S.houseCap}`, cx, topY - 1);
   }
+  const tier = cell.tier || 1;
+  if (tier > 1 && cell.type !== 'center') {
+    for (let i = 0; i < tier; i++) { ctx.fillStyle = '#e6b34a'; ctx.beginPath(); ctx.arc(cx - 6 + i * 6, p.y + TH / 2, 2.4, 0, Math.PI * 2); ctx.fill(); }
+  }
   if (inactive) {
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.arc(cx, p.y + TH / 2, 5, 0, Math.PI * 2); ctx.fill();
@@ -458,11 +466,13 @@ function initCanvas() {
   canvas.addEventListener('mouseleave', () => { S.hover = null; hideTooltip(); render(); });
   canvas.addEventListener('click', (e) => {
     const t = tileFromEvent(e); if (!t) return;
-    if (S.bulldoze) wsSend({ type: 'bulldoze', x: t.x, y: t.y });
+    if (S.upgrade) wsSend({ type: 'upgrade', x: t.x, y: t.y });
+    else if (S.bulldoze) wsSend({ type: 'bulldoze', x: t.x, y: t.y });
     else wsSend({ type: 'place', x: t.x, y: t.y, building: S.selected });
   });
   canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); const t = tileFromEvent(e); if (t) wsSend({ type: 'bulldoze', x: t.x, y: t.y }); });
-  $('bulldozeBtn').onclick = () => { S.bulldoze = !S.bulldoze; updatePaletteState(); };
+  $('bulldozeBtn').onclick = () => { S.bulldoze = !S.bulldoze; S.upgrade = false; updatePaletteState(); };
+  { const ub = $('upgradeBtn'); if (ub) ub.onclick = () => { S.upgrade = !S.upgrade; S.bulldoze = false; updatePaletteState(); }; }
   $('codeCopy').onclick = () => { if (!S.code) return; navigator.clipboard?.writeText(S.code).then(() => showToast('Код скопирован'), () => showToast('Код: ' + S.code)); };
   $('helpBtn').onclick = () => { buildHelp(); $('help').hidden = false; };
   $('helpClose').onclick = () => { $('help').hidden = true; };
@@ -475,7 +485,10 @@ function updateTooltip() {
   if (!S.hover || !S.state) return hideTooltip();
   const cell = S.state.grid[`${S.hover.x},${S.hover.y}`];
   const did = districtOf(S.hover.x, S.hover.y);
-  const dName = districtById(did) ? districtById(did).name : '';
+  const dObj = districtById(did);
+  const dName = dObj ? dObj.name : '';
+  const dStats = dObj && dObj.stats;
+  const statsLine = (s) => s ? `🌿 экология ${s.eco} · 🚨 крим ${s.crime} · 🩺 здоровье ${s.health}` : '';
   if (!cell) {
     const idx = S.hover.y * S.gridSize + S.hover.x;
     const code = S.terrain ? S.terrain[idx] : 'g';
@@ -488,18 +501,31 @@ function updateTooltip() {
       parts.push(lbl);
     }
     if (dName) parts.push('район «' + escapeHtml(dName) + '»');
-    if (!parts.length) return hideTooltip();
-    tip.innerHTML = `<span class="tip-lvl">${parts.join(' · ')}</span>`;
+    if (!parts.length && !dStats) return hideTooltip();
+    let inner = `<span class="tip-lvl">${parts.join(' · ')}</span>`;
+    if (dStats) inner += `<div class="tip-lvl">${statsLine(dStats)}</div>`;
+    tip.innerHTML = inner;
     return placeTooltip(tip);
   }
   const def = S.catalog[cell.type] || {};
   let html = `<b>${def.label || cell.type}</b> <span class="tip-dist">· ${escapeHtml(dName)}</span>`;
+  if (cell.type !== 'center' && cell.type !== 'road') {
+    const tier = cell.tier || 1, maxT = (S.buildMeta && S.buildMeta.maxTier) || 3;
+    let line = `🏗 уровень ${tier}/${maxT}`;
+    if (tier < maxT) {
+      const m = Math.round((def.cost || 0) * ((S.buildMeta && S.buildMeta.upCostMult) || 0.8) * tier);
+      line += ` · ⬆️ улучшить: ${m}$${def.wood ? ` 🪵${def.wood}` : ''}${def.stone ? ` 🪨${def.stone}` : ''}`;
+    } else line += ' · макс.';
+    html += `<div class="tip-lvl">${line}</div>`;
+  }
   if (cell.type === 'house') {
     const lvl = cell.level || 0, hp = cell.happy != null ? cell.happy : 0;
     html += `<div class="tip-lvl">👥 ${cell.pop || 0}/${cell.cap || S.houseCap} · счастье ${hp}%</div>`;
     html += `<div class="tip-lvl">Уровень ${lvl}/5${lvl ? ' — ' + S.tierLabels[lvl] : ' — базовые нужды не закрыты'}</div>`;
     const move = (cell.savings || 0) >= 40;
     html += `<div class="tip-lvl">💰 накопления ${cell.savings || 0}${hp <= 35 ? (move ? ' · копят на переезд в район получше' : ' · денег на переезд нет') : ''}</div>`;
+    const edu = cell.edu || 0;
+    html += `<div class="tip-lvl">🎓 образованность ${edu}%${edu >= 60 ? ' · можно улучшать дом' : ' · нужна школа рядом для апгрейда'}</div>`;
     const nz = nuisancesAt(S.hover.x, S.hover.y);
     if (nz.length) html += `<div class="tip-lvl tip-bad">⚠ рядом: ${nz.join(', ')}</div>`;
     html += '<div class="tip-needs">';
@@ -520,6 +546,7 @@ function updateTooltip() {
     html += `<div class="tip-lvl">содержание ${def.upkeep || 0}/тик</div>`;
   }
   if (cell.active === false && cell.type !== 'center') html += `<div class="tip-lvl tip-bad">⚠ нет дороги рядом — не работает</div>`;
+  if (dStats) html += `<div class="tip-lvl">${statsLine(dStats)}</div>`;
   tip.innerHTML = html;
   placeTooltip(tip);
 }
