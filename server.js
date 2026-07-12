@@ -63,8 +63,8 @@ const SERVICE_FEE = 1;           // «оборот» коммерческого 
 
 // Ресурсы-склад (еда/вода): производители льют в общий пул, жители потребляют.
 // Добыча — целые числа, по спецификации плейтеста
-const FARM_BASE = 5, FARM_PER_GRASS = 1, FARM_R = 2;   // ферма: +5 база, +1 за пустой тайл травы, квадрат r2 (+1/уровень)
-const WELL_BASE = [2, 4, 6], WELL_PER = [1, 2, 3], WELL_R = [2, 3, 4]; // колодец по уровню: база / за тайл воды / радиус
+const FARM_BASE = 2, FARM_PER_GRASS = 1, FARM_R = 2;   // ферма: +2 база (снижено), +1 за пустой тайл травы, квадрат r2 (+1/ур.)
+const WELL_BASE = [1, 2, 3], WELL_PER = [1, 2, 3], WELL_R = [2, 3, 4]; // колодец по уровню: база (снижено) / за тайл воды / радиус
 const WOOD_PER_FOREST = 1;       // дерево лесопилки = × тайлов леса в радиусе (истощаемо)
 const STONE_PER_ROCK = 1;        // камень каменоломни = × тайлов камня в радиусе (истощаемо)
 const CONSUME_WATER = 1;         // потребление воды на жителя за тик
@@ -388,18 +388,19 @@ function districtOf(room, x, y) {
 }
 
 // --- Счастье домохозяйства (0..100) ---
-function happiness(level, pop, cap, taxes, crime, epidemic, deficit, extra) {
-  let h = 20 + (level / MAX_TIER) * 70;
+function happiness(level, pop, cap, taxes, crime, epidemic, deficit, parts) {
+  parts.push({ label: `Базовый уровень (${level}/${MAX_TIER})`, val: 20 + (level / MAX_TIER) * 70 });
   const soft = cap * 0.8;
-  if (pop > soft) h -= (pop - soft) * 12;   // теснота
-  h -= taxes.residential * 0.6;             // жилой налог бьёт сильнее
-  h -= taxes.commercial * 0.2;              // коммерческий мягче
-  if (crime) h -= 15;
-  if (epidemic) h -= 30;
-  if (deficit) h -= 15;                     // город в долгах — сервисы под угрозой
-  h += extra || 0;                          // шум/загрязнение от соседних зданий
-  return clamp(Math.round(h), 0, 100);
+  if (pop > soft) parts.push({ label: 'Теснота', val: -(pop - soft) * 12 });
+  if (taxes.residential) parts.push({ label: `Жилой налог ${taxes.residential}%`, val: -taxes.residential * 0.6 });
+  if (taxes.commercial) parts.push({ label: `Коммерческий налог ${taxes.commercial}%`, val: -taxes.commercial * 0.2 });
+  if (crime) parts.push({ label: 'Преступность в районе', val: -15 });
+  if (epidemic) parts.push({ label: 'Эпидемия', val: -30 });
+  if (deficit) parts.push({ label: 'Казна пуста', val: -15 });
+  const sum = parts.reduce((a, p) => a + p.val, 0);
+  return clamp(Math.round(sum), 0, 100);
 }
+const EVENT_LABEL = { strike: 'Забастовка', smog: 'Смог', invest: 'Инвестиции', crime: 'Криминал', epidemic: 'Эпидемия', fair: 'Ярмарка', festival: 'Праздник', snob: 'Снобизм', gridlock: 'Пробки' };
 
 // --- Ядро симуляции (чистая функция) ---
 function computeSim(room) {
@@ -412,14 +413,11 @@ function computeSim(room) {
   for (const d of room.districts) modOf.set(d.id, d.mods);
   const mHas = (did, id) => { const m = modOf.get(did); return !!(m && m[id]); };
 
-  const roadSet = new Set();
-  if (room.roads) for (let i = 0; i < room.roads.length; i++) if (room.roads[i]) roadSet.add(`${i % GRID_SIZE},${Math.floor(i / GRID_SIZE)}`);
   const providers = cells
     .filter((c) => BUILDINGS[c.type] && BUILDINGS[c.type].kind === 'provider' && roadNeighbor(room, c.x, c.y))
     .map((c) => {
       const rng = BUILDINGS[c.type].range;
-      const nearRoad = neighbors(c.x, c.y).some(([nx, ny]) => roadSet.has(`${nx},${ny}`));
-      let r = rng.r + (nearRoad ? 1 : 0) + (tierOf(c) - 1);
+      let r = rng.r + (tierOf(c) - 1); // радиус = база + уровень (дорожного бонуса больше нет)
       for (const ev of EVENTS) if (ev.radiusDelta && mHas(dOf.get(c.k), ev.id)) r = Math.max(1, r + ev.radiusDelta);
       return { ...c, shape: rng.shape, r };
     });
@@ -487,25 +485,26 @@ function computeSim(room) {
     if (needs.growth && !inRangeTypes.has('theater') && inRangeTypes.has('school') && !eduServed.has(h.k)) needs.growth = false;
     for (const ev of EVENTS) if (ev.houseNeed && mHas(hDist, ev.id)) ev.houseNeed(needs);
 
-    // Вредные воздействия: гасят показатель и/или счастье
-    let extra = -unempPenalty;
-    if (needs.water && needs.food) extra += BASIC_COMFORT; // #4: базовый комфорт → дом заселяется без клиники/полиции
-    extra += ambient[hDist] || 0; // фон района: экология/шум/преступность
+    // Вклады в счастье (для прозрачной разбивки)
+    const parts = [];
+    if (unempPenalty) parts.push({ label: 'Безработица', val: -unempPenalty });
+    if (needs.water && needs.food) parts.push({ label: 'Базовый комфорт (вода+еда)', val: BASIC_COMFORT });
+    if (ambient[hDist]) parts.push({ label: 'Фон района (экология/преступность)', val: ambient[hDist] });
+    for (const ev of EVENTS) if (ev.happyDelta && mHas(hDist, ev.id)) parts.push({ label: `Событие: ${EVENT_LABEL[ev.id] || ev.id}`, val: ev.happyDelta });
     const hActive = roadNeighbor(room, h.x, h.y);
-    if (!hActive) extra -= NO_ROAD_PENALTY; // нет дороги рядом — дом отрезан
+    if (!hActive) parts.push({ label: 'Нет дороги рядом', val: -NO_ROAD_PENALTY });
     for (const nz of nuisances) {
       if (!covers(nz.shape, h.x - nz.x, h.y - nz.y, nz.r)) continue;
-      extra += nz.happy || 0;
+      if (nz.happy) parts.push({ label: `${nz.label || 'шум'} от соседей`, val: nz.happy });
       if (nz.negates) needs[nz.negates] = false;
     }
-    // Природа рядом (лес/вода) поднимает счастье
     let nature = 0;
     for (const [nx, ny] of neighbors(h.x, h.y)) {
       if (nx < 0 || ny < 0 || nx >= GRID_SIZE || ny >= GRID_SIZE) continue;
       const tt = TERRAIN[terrainAt(room, nx, ny)];
       if (tt && tt.nature) nature += NATURE_BONUS;
     }
-    extra += Math.min(NATURE_CAP, nature);
+    if (nature > 0) parts.push({ label: 'Природа рядом (лес/вода)', val: Math.min(NATURE_CAP, nature) });
 
     let level = 0;
     for (let t = 1; t <= MAX_TIER; t++) {
@@ -516,9 +515,9 @@ function computeSim(room) {
 
     const pop = h.pop || 0;
     const cap = h.cap || HOUSE_CAP;
-    const happy = happiness(level, pop, cap, taxes, mHas(hDist, 'crime'), mHas(hDist, 'epidemic'), room.deficit, extra);
+    const happy = happiness(level, pop, cap, taxes, mHas(hDist, 'crime'), mHas(hDist, 'epidemic'), room.deficit, parts);
     const gross = pop * (1 + level) * 2; // налогооблагаемая ценность домохозяйства
-    houseInfo.set(h.k, { level, needs, pop, cap, district: hDist, happy, gross, active: hActive });
+    houseInfo.set(h.k, { level, needs, pop, cap, district: hDist, happy, gross, active: hActive, parts });
   }
 
   // Здоровье района + доля образованных (для условий апгрейда)
@@ -634,10 +633,58 @@ const EVENTS = [
     id: 'gridlock', icon: '🚧', radiusDelta: -1,
     run(room, ctx, news) {
       for (const d of room.districts) {
-        if (ctx.provCount[d.id] >= GRIDLOCK_PROVIDERS && ctx.roadCount[d.id] === 0 && !d.mods.gridlock) {
+        const builds = ctx.provCount[d.id], roads = ctx.roadCount[d.id];
+        if (builds >= GRIDLOCK_PROVIDERS && roads < builds && !d.mods.gridlock) {
           d.mods.gridlock = MOD_DAYS;
-          news.push({ kind: 'gridlock', text: `Пробки в «${d.name}»: застроились, а дорог не проложили — сервисы не дотягиваются до окраин.` });
+          news.push({ kind: 'gridlock', text: `Пробки в «${d.name}»: ${builds} зданий на ${roads} дорог — узкие улицы забиты, сервисы теряют по клетке радиуса. Проложите больше дорог.` });
         }
+      }
+    },
+  },
+  {
+    id: 'fair', icon: '🎪', houseNeed(needs) { needs.esteem = true; }, // ярмарка закрывает «Признание»
+    run(room, ctx, news) {
+      for (const d of room.districts) {
+        const t = ctx.types[d.id];
+        const trade = t.has('shop') && (t.has('cafe') || t.has('gym'));
+        if (trade && ctx.pop[d.id] >= 5 && !d.mods.fair && crypto.randomInt(0, 100) < 22) {
+          d.mods.fair = MOD_DAYS;
+          news.push({ kind: 'fair', text: `Ярмарка в «${d.name}»: прилавки, музыка, толчея — жителям есть чем гордиться, «Признание» закрыто на время праздника.` });
+        }
+      }
+    },
+  },
+  {
+    id: 'strike', icon: '✊', happyDelta: -15, // забастовка от высоких налогов
+    run(room, ctx, news) {
+      for (const d of room.districts) {
+        if (room.taxes.residential >= 28 && ctx.pop[d.id] >= 5 && !d.mods.strike && crypto.randomInt(0, 100) < 30) {
+          d.mods.strike = MOD_DAYS;
+          news.push({ kind: 'strike', text: `Забастовка в «${d.name}»: жилой налог ${room.taxes.residential}% — люди вышли на улицы, настроение резко падает. Снизьте налог.` });
+        }
+      }
+    },
+  },
+  {
+    id: 'smog', icon: '🌫', happyDelta: -10, // смог при грязной экологии и заводах
+    run(room, ctx, news) {
+      for (const d of room.districts) {
+        const s = ctx.stats[d.id];
+        if (s && s.eco <= 25 && ctx.types[d.id].has('factory') && !d.mods.smog && crypto.randomInt(0, 100) < 35) {
+          d.mods.smog = MOD_DAYS;
+          news.push({ kind: 'smog', text: `Смог над «${d.name}»: экология ${s.eco}/100, заводы коптят — дышать нечем, жителям плохо. Добавьте парков или уберите заводы.` });
+        }
+      }
+    },
+  },
+  {
+    id: 'invest', icon: '💸', happyDelta: 12, // инвестиции в богатый район при полной казне
+    run(room, ctx, news) {
+      if (room.treasury < 2000 || !room.districts.length) return;
+      const rich = [...room.districts].sort((a, b) => ctx.prosperity[b.id] - ctx.prosperity[a.id])[0];
+      if (ctx.prosperity[rich.id] >= 40 && !rich.mods.invest && crypto.randomInt(0, 100) < 25) {
+        rich.mods.invest = MOD_DAYS;
+        news.push({ kind: 'invest', text: `Приток инвестиций в «${rich.name}»: полная казна и богатый район притянули вложения — оптимизм, счастье растёт.` });
       }
     },
   },
@@ -677,9 +724,13 @@ function runDay(room) {
     types[did].add(cell.type);
     if (cell.type === 'clinic') hasClinic[did] = true;
     if (cell.type === 'police') hasPolice[did] = true;
-    if (cell.type === 'road') roadCount[did] += 1;
     if (kind === 'provider' || kind === 'industry') provCount[did] += 1;
     if (cell.type !== 'house') { const [x, y] = k.split(',').map(Number); cx[did] += x; cy[did] += y; weight[did] += 1; }
+  }
+  for (let i = 0; i < (room.roads ? room.roads.length : 0); i++) {
+    if (!room.roads[i]) continue;
+    const did = districtOf(room, i % GRID_SIZE, Math.floor(i / GRID_SIZE));
+    if (did >= 0) roadCount[did] += 1;
   }
   const ctx = { prosperity, pop, tension, hasClinic, hasPolice, provCount, roadCount, types, stats: sim.districtStats || {} };
 
@@ -797,7 +848,7 @@ function serializeState(room) {
     base.active = isActive(room, cx, cy, cell.type);
     if (cell.type === 'house') {
       const info = sim.houseInfo.get(key);
-      if (info) { base.pop = info.pop; base.cap = info.cap; base.level = info.level; base.needs = info.needs; base.happy = info.happy; base.savings = Math.round(cell.savings || 0); base.edu = Math.round((cell.edu || 0) * 100); }
+      if (info) { base.pop = info.pop; base.cap = info.cap; base.level = info.level; base.needs = info.needs; base.happy = info.happy; base.savings = Math.round(cell.savings || 0); base.edu = Math.round((cell.edu || 0) * 100); base.happyParts = (info.parts || []).map((p) => ({ label: p.label, val: Math.round(p.val) })); }
     } else if (BUILDINGS[cell.type] && BUILDINGS[cell.type].kind === 'provider') {
       base.served = sim.served.get(key) || 0;
     }

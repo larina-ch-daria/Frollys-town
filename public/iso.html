@@ -6,7 +6,7 @@
   <title>Общий город — изометрия (эксперимент)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700&family=Inter:wght@400;500;600&family=Playfair+Display:ital,wght@0,700;0,800;1,600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -39,15 +39,27 @@
       <span class="asset" title="Знания (образованные жители; понижают веру)"><span class="ae">🎓</span><b id="aKnow">0</b></span>
     </div>
     <div class="stage">
-    <div class="boardcol">
+      <div id="paper" class="paper">
+        <div class="paper-mast">
+          <span class="paper-ear">№<span id="paperDay">0</span></span>
+          <span class="paper-title">Городскія Вѣсти</span>
+          <span class="paper-ear paper-ear-r">Ежедневникъ</span>
+        </div>
+        <div class="paper-sub">орган городского самоуправленія · цѣна 5 монетъ</div>
+        <ul id="news" class="news"></ul>
+        <div id="standings" class="standings"></div>
+      </div>
     <div class="board-wrap">
       <canvas id="board"></canvas>
       <div id="hint" class="hint">Выберите здание справа и кликните по клетке · наведите на здание для деталей</div>
-    </div>
-      <div id="paper" class="paper">
-        <div class="paper-mast"><span class="paper-title">📰 Городские вести</span><span id="paperDay" class="paper-day">Выпуск №0</span></div>
-        <ul id="news" class="news"></ul>
-        <div id="standings" class="standings"></div>
+      <div class="zoombar">
+        <button id="zoomIn" title="Приблизить">＋</button>
+        <button id="zoomOut" title="Отдалить">－</button>
+        <button id="zoomReset" title="Сбросить вид">⟲</button>
+      </div>
+      <div id="inspect" class="inspect" hidden>
+        <button id="inspectClose" class="inspect-x" title="Закрыть">×</button>
+        <div id="inspectBody"></div>
       </div>
     </div>
 

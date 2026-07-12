@@ -18,6 +18,7 @@ const S = {
   jobs: {}, terrain: '', terrainMeta: {}, terrainSprites: {},
   districts: [], paper: null, day: 0, dayTicks: 8, tickInDay: 0, lastSeenDay: 0,
   cursors: {},
+  view: { scale: 1, ox: 0, oy: 0 }, mapW: 0,
   treasury: 0,
 };
 const IMAGES = {};
@@ -107,6 +108,7 @@ function handle(msg) {
     syncSprites();
     if (!$('palette').childElementCount) renderPalette();
     renderAssets(); renderBudget(); renderTaxes(); renderScoreboard(); renderDistrictsList(); renderDayline(); render();
+    if (S.inspect) renderInspect();
   }
 }
 
@@ -283,10 +285,10 @@ function bindAssetTips() {
 
 
 // ---------- Газета ----------
-const KIND_ICON = { snob: '💅', crime: '🚨', boom: '📈', exodus: '📉', reform: '🗺', quiet: '☕', epidemic: '🦠', festival: '🎉', gridlock: '🚧', district: '🏙' };
+const KIND_ICON = { snob: '💅', crime: '🚨', boom: '📈', exodus: '📉', reform: '🗺', quiet: '☕', epidemic: '🦠', festival: '🎉', gridlock: '🚧', district: '🏙', fair: '🎪', strike: '✊', smog: '🌫', invest: '💸' };
 function renderPaper() {
   if (!S.paper) return;
-  $('paperDay').textContent = `Выпуск №${S.paper.day}`;
+  $('paperDay').textContent = S.paper.day;
   const ul = $('news'); ul.innerHTML = '';
   for (const it of S.paper.items) {
     const li = document.createElement('li');
@@ -306,6 +308,7 @@ function sizeCanvas() {
   const boardPx = S.gridSize * CELL, dpr = window.devicePixelRatio || 1;
   canvas.width = boardPx * dpr; canvas.height = boardPx * dpr;
   canvas.style.width = boardPx + 'px';
+  S.mapW = boardPx;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   render();
 }
@@ -358,7 +361,9 @@ function otherCursors() { const out = []; const now = Date.now(); for (const pid
 function render() {
   if (!S.state) return;
   const n = S.gridSize, boardPx = n * CELL;
-  ctx.clearRect(0, 0, boardPx, boardPx);
+  ctx.fillStyle = '#e8ecdf'; ctx.fillRect(0, 0, boardPx, boardPx); // фон вокруг карты
+  ctx.save();
+  ctx.translate(S.view.ox, S.view.oy); ctx.scale(S.view.scale, S.view.scale);
   const dmap = [];
   for (let y = 0; y < n; y++) { dmap[y] = []; for (let x = 0; x < n; x++) dmap[y][x] = districtOf(x, y); }
 
@@ -422,7 +427,7 @@ function render() {
   // Превью зоны: на занятой клетке — покрытие здания, на пустой — превью выбранного
   if (S.hover) {
     const hc = S.state.grid[`${S.hover.x},${S.hover.y}`];
-    if (hc) drawCoverage(S.hover.x, S.hover.y, hc.type);
+    if (hc) drawCoverage(S.hover.x, S.hover.y, hc.type, hc.tier);
     else {
       const code = S.terrain ? S.terrain[S.hover.y * n + S.hover.x] : 'g';
       const def = S.catalog[S.selected];
@@ -457,6 +462,7 @@ function render() {
     ctx.fillStyle = c.color || '#888'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 10, py + 4); ctx.lineTo(px + 4, py + 10); ctx.closePath(); ctx.fill(); ctx.stroke();
   }
+  ctx.restore();
 }
 function fillZone(cx, cy, shape, r, color) {
   const n = S.gridSize;
@@ -469,9 +475,10 @@ function fillZone(cx, cy, shape, r, color) {
       ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
     }
 }
-function drawCoverage(cx, cy, type) {
+function drawCoverage(cx, cy, type, tier) {
   const def = S.catalog[type]; if (!def) return;
-  if (def.range) fillZone(cx, cy, def.range.shape, def.range.r, 'rgba(52,150,84,0.22)');
+  const t = tier || 1;
+  if (def.range) fillZone(cx, cy, def.range.shape, def.range.r + (t - 1), 'rgba(52,150,84,0.22)');
   if (def.emits) for (const e of def.emits) fillZone(cx, cy, e.shape, e.r, 'rgba(200,70,55,0.24)');
 }
 function roundRect(x, y, w, h, r) {
@@ -531,11 +538,17 @@ function drawDistrictLabel(d) {
 }
 function tileFromEvent(e) {
   const rect = canvas.getBoundingClientRect();
-  const scale = (S.gridSize * CELL) / rect.width;
-  const x = Math.floor(((e.clientX - rect.left) * scale) / CELL);
-  const y = Math.floor(((e.clientY - rect.top) * scale) / CELL);
+  const k = (S.gridSize * CELL) / rect.width;              // client → координаты холста
+  const cx = (e.clientX - rect.left) * k, cy = (e.clientY - rect.top) * k;
+  const wx = (cx - S.view.ox) / S.view.scale, wy = (cy - S.view.oy) / S.view.scale; // снимаем зум/сдвиг
+  const x = Math.floor(wx / CELL), y = Math.floor(wy / CELL);
   if (x < 0 || y < 0 || x >= S.gridSize || y >= S.gridSize) return null;
   return { x, y };
+}
+function clampView() {
+  const m = S.mapW || 1, span = m * S.view.scale, minVis = m * 0.3; // минимум 30% карты в кадре
+  S.view.ox = Math.min(m - minVis, Math.max(minVis - span, S.view.ox));
+  S.view.oy = Math.min(m - minVis, Math.max(minVis - span, S.view.oy));
 }
 function initCanvas() {
   canvas.addEventListener('mousemove', (e) => {
@@ -548,12 +561,49 @@ function initCanvas() {
   canvas.addEventListener('mouseleave', () => { S.hover = null; hideTooltip(); render(); });
   bindAssetTips();
   canvas.addEventListener('click', (e) => {
+    if (S._didPan) { S._didPan = false; return; }   // не строим, если это было перетаскивание
     const t = tileFromEvent(e); if (!t) return;
-    if (S.upgrade) wsSend({ type: 'upgrade', x: t.x, y: t.y });
-    else if (S.bulldoze) wsSend({ type: 'bulldoze', x: t.x, y: t.y });
-    else wsSend({ type: 'place', x: t.x, y: t.y, building: S.selected });
+    if (S.upgrade) return wsSend({ type: 'upgrade', x: t.x, y: t.y });
+    if (S.bulldoze) return wsSend({ type: 'bulldoze', x: t.x, y: t.y });
+    const cell = S.state && S.state.grid[`${t.x},${t.y}`];
+    if (cell && cell.type !== 'road') { S.inspect = { x: t.x, y: t.y }; renderInspect(); return; } // клик по зданию — подробности
+    wsSend({ type: 'place', x: t.x, y: t.y, building: S.selected });
   });
   canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); const t = tileFromEvent(e); if (t) wsSend({ type: 'bulldoze', x: t.x, y: t.y }); });
+
+  // ── Зум и панорама ──
+  const clientToCanvas = (e) => { const r = canvas.getBoundingClientRect(); const k = (S.mapW || 1) / r.width; return { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k }; };
+  canvas.addEventListener('wheel', (e) => {
+    if (!S.state) return; e.preventDefault();
+    const p = clientToCanvas(e), v = S.view;
+    const wx = (p.x - v.ox) / v.scale, wy = (p.y - v.oy) / v.scale;
+    const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    v.scale = Math.max(0.6, Math.min(4, v.scale * f));
+    v.ox = p.x - wx * v.scale; v.oy = p.y - wy * v.scale;
+    clampView(); render();
+  }, { passive: false });
+  let pan = null;
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 1 || (e.button === 0 && S.space)) { // средняя кнопка или Space+ЛКМ
+      const p = clientToCanvas(e); pan = { x: p.x, y: p.y, ox: S.view.ox, oy: S.view.oy }; S._didPan = false; e.preventDefault();
+    }
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!pan) return;
+    const p = clientToCanvas(e); S.view.ox = pan.ox + (p.x - pan.x); S.view.oy = pan.oy + (p.y - pan.y);
+    S._didPan = true; clampView(); render();
+  });
+  window.addEventListener('mouseup', () => { pan = null; });
+  window.addEventListener('keydown', (e) => { if (e.code === 'Space' && !e.repeat) { S.space = true; canvas.style.cursor = 'grab'; } });
+  window.addEventListener('keyup', (e) => { if (e.code === 'Space') { S.space = false; canvas.style.cursor = ''; } });
+  const zoomBy = (f) => { const v = S.view, c = (S.mapW || 1) / 2; const wx = (c - v.ox) / v.scale, wy = (c - v.oy) / v.scale; v.scale = Math.max(0.6, Math.min(4, v.scale * f)); v.ox = c - wx * v.scale; v.oy = c - wy * v.scale; clampView(); render(); };
+  { const zi = $('zoomIn'), zo = $('zoomOut'), zr = $('zoomReset');
+    if (zi) zi.onclick = () => zoomBy(1.2);
+    if (zo) zo.onclick = () => zoomBy(1 / 1.2);
+    if (zr) zr.onclick = () => { S.view = { scale: 1, ox: 0, oy: 0 }; render(); }; }
+
+  { const ic = $('inspectClose'); if (ic) ic.onclick = closeInspect; }
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeInspect(); });
   $('bulldozeBtn').onclick = () => { S.bulldoze = !S.bulldoze; S.upgrade = false; updatePaletteState(); };
   { const ub = $('upgradeBtn'); if (ub) ub.onclick = () => { S.upgrade = !S.upgrade; S.bulldoze = false; updatePaletteState(); }; }
   $('codeCopy').onclick = () => { if (!S.code) return; navigator.clipboard?.writeText(S.code).then(() => showToast('Код скопирован'), () => showToast('Код: ' + S.code)); };
@@ -563,6 +613,64 @@ function initCanvas() {
 }
 
 // ---------- Тултип ----------
+const EVENT_NAME = { strike: 'Забастовка', smog: 'Смог', invest: 'Инвестиции', crime: 'Криминал', epidemic: 'Эпидемия', fair: 'Ярмарка', festival: 'Праздник', snob: 'Снобизм', gridlock: 'Пробки' };
+function happyColor(h) { return `hsl(${(h / 100) * 120}, 65%, 42%)`; }
+function closeInspect() { S.inspect = null; const ip = $('inspect'); if (ip) ip.hidden = true; }
+function renderInspect() {
+  const ip = $('inspect'), body = $('inspectBody');
+  if (!ip || !S.inspect || !S.state) { if (ip) ip.hidden = true; return; }
+  const cell = S.state.grid[`${S.inspect.x},${S.inspect.y}`];
+  if (!cell) { closeInspect(); return; }
+  const def = S.catalog[cell.type] || {};
+  const dObj = districtById(districtOf(S.inspect.x, S.inspect.y));
+  const dName = dObj ? dObj.name : '';
+  const dStats = dObj && dObj.stats;
+  const tier = cell.tier || 1, maxT = (S.buildMeta && S.buildMeta.maxTier) || 3;
+  let h = `<div class="ins-title"><b>${def.label || cell.type}</b>${dName ? ` <span class="tip-dist">· ${escapeHtml(dName)}</span>` : ''}</div>`;
+
+  if (cell.type !== 'center' && cell.type !== 'road') {
+    let line = `🏗 уровень ${tier}/${maxT}`;
+    if (tier < maxT) { const m = Math.round((def.cost || 0) * ((S.buildMeta && S.buildMeta.upCostMult) || 0.8) * tier); line += ` · ⬆️ ${m}$${def.wood ? ` 🪵${def.wood}` : ''}${def.stone ? ` 🪨${def.stone}` : ''}`; } else line += ' · макс.';
+    h += `<div class="ins-row">${line}</div>`;
+    if (tier === 2) {
+      const isProd = def.produces || def.output;
+      const thrH = (S.buildMeta && S.buildMeta.eduThreshold) || 60, thrD = Math.round(((S.buildMeta && S.buildMeta.prodEduShare) || 0.4) * 100);
+      if (def.kind === 'house') { const cur = cell.edu || 0; h += `<div class="ins-row ${cur >= thrH ? '' : 'neg'}">для ур.3: образованность дома ≥${thrH}% (сейчас ${cur}%)</div>`; }
+      else if (isProd) { const cur = (dStats && dStats.edu) || 0; h += `<div class="ins-row ${cur >= thrD ? '' : 'neg'}">для ур.3: образованных в районе ≥${thrD}% (сейчас ${cur}%)</div>`; }
+    }
+  }
+
+  if (cell.type === 'house') {
+    const hp = cell.happy != null ? cell.happy : 0, lvl = cell.level || 0;
+    h += `<div class="ins-happy"><span class="ins-happy-n" style="color:${happyColor(hp)}">☺ ${hp}%</span><span class="ins-happy-lbl">счастье · уровень ${lvl}/5 ${lvl ? '(' + S.tierLabels[lvl] + ')' : '(базовые нужды не закрыты)'}</span></div>`;
+    if (cell.happyParts && cell.happyParts.length) {
+      h += `<div class="ins-sub">Откуда счастье</div><ul class="ins-parts">`;
+      for (const p of [...cell.happyParts].sort((a, b) => b.val - a.val)) h += `<li class="${p.val >= 0 ? 'pos' : 'neg'}"><span>${escapeHtml(p.label)}</span><b>${p.val >= 0 ? '+' : ''}${p.val}</b></li>`;
+      h += `</ul>`;
+    }
+    h += `<div class="ins-sub">Потребности</div><div class="ins-needs">`;
+    for (let t = 1; t <= 5; t++) {
+      const parts = S.needs.filter((n) => n.tier === t).map((n) => `<span class="${cell.needs && cell.needs[n.key] ? 'ok' : 'no'}">${cell.needs && cell.needs[n.key] ? '✓' : '✗'} ${n.label}</span>`).join(' ');
+      h += `<div class="tip-tier"><span class="tip-t">${t}</span>${parts}</div>`;
+    }
+    h += `</div>`;
+    h += `<div class="ins-row">🎓 образованность ${cell.edu || 0}% · 💰 накопления ${cell.savings || 0}</div>`;
+  } else if (def.range || def.kind === 'industry') {
+    if (def.produces) h += `<div class="ins-row">добывает ${RES_NAME[def.produces.res]} · радиус ${SHAPE_NAME[def.range.shape]} r${def.range.r + (tier - 1)}</div>`;
+    else if (def.range) h += `<div class="ins-row">зона ${SHAPE_NAME[def.range.shape]} r${def.range.r + (tier - 1)} · обслуживает ${cell.served || 0} домов</div>`;
+    if (def.output) h += `<div class="ins-row">коммерческий оборот +${def.output}</div>`;
+    const jb = S.jobs[cell.type] || 0; h += `<div class="ins-row">${jb ? 'рабочих мест ' + jb + ' · ' : ''}содержание ${def.upkeep || 0}/тик</div>`;
+    if (def.emits) for (const e of def.emits) h += `<div class="ins-row neg">⚠ ${e.label}: счастье ${e.happy} (${SHAPE_NAME[e.shape]} r${e.r})</div>`;
+  }
+  if (cell.active === false && cell.type !== 'center') h += `<div class="ins-row neg">⚠ нет дороги рядом — здание не работает</div>`;
+  if (dObj && dObj.mods && dObj.mods.length) {
+    h += `<div class="ins-sub">События района</div><div class="ins-row">`;
+    for (const m of dObj.mods) h += `${(S.state.modIcons && S.state.modIcons[m]) || '•'} ${EVENT_NAME[m] || m}   `;
+    h += `</div>`;
+  }
+  if (dStats) h += `<div class="ins-row ins-stats">🌿 ${dStats.eco} · 🚨 ${dStats.crime} · 🩺 ${dStats.health} · 🎓 ${dStats.edu || 0}%</div>`;
+  body.innerHTML = h; ip.hidden = false;
+}
 function updateTooltip() {
   const tip = $('tooltip');
   if (!S.hover || !S.state) return hideTooltip();
@@ -570,8 +678,6 @@ function updateTooltip() {
   const did = districtOf(S.hover.x, S.hover.y);
   const dObj = districtById(did);
   const dName = dObj ? dObj.name : '';
-  const dStats = dObj && dObj.stats;
-  const statsLine = (s) => s ? `🌿 экология ${s.eco} · 🚨 крим ${s.crime} · 🩺 здоровье ${s.health}` : '';
   if (!cell) {
     const idx = S.hover.y * S.gridSize + S.hover.x;
     const code = S.terrain ? S.terrain[idx] : 'g';
@@ -579,64 +685,27 @@ function updateTooltip() {
     const parts = [];
     if (tm) {
       let lbl = tm.label;
-      if (S.reserve && (code === 'f' || code === 'w' || code === 's')) lbl += ` · запас ${Math.round(S.reserve[idx] || 0)}/${(S.tileMax && S.tileMax[code]) || 100}`;
+      if (S.reserve && (code === 'f' || code === 'w' || code === 's')) lbl += ` · запас ${Math.round(S.reserve[idx] || 0)}`;
       if (tm.build === false) lbl += ' · не застроить';
       parts.push(lbl);
     }
-    if (dName) parts.push('район «' + escapeHtml(dName) + '»');
-    if (!parts.length && !dStats) return hideTooltip();
-    let inner = `<span class="tip-lvl">${parts.join(' · ')}</span>`;
-    if (dStats) inner += `<div class="tip-lvl">${statsLine(dStats)}</div>`;
-    tip.innerHTML = inner;
+    if (dName) parts.push('«' + escapeHtml(dName) + '»');
+    if (!parts.length) return hideTooltip();
+    tip.innerHTML = `<span class="tip-lvl">${parts.join(' · ')}</span>`;
     return placeTooltip(tip);
   }
   const def = S.catalog[cell.type] || {};
-  let html = `<b>${def.label || cell.type}</b> <span class="tip-dist">· ${escapeHtml(dName)}</span>`;
-  if (cell.type !== 'center' && cell.type !== 'road') {
-    const tier = cell.tier || 1, maxT = (S.buildMeta && S.buildMeta.maxTier) || 3;
-    let line = `🏗 уровень ${tier}/${maxT}`;
-    if (tier < maxT) {
-      const m = Math.round((def.cost || 0) * ((S.buildMeta && S.buildMeta.upCostMult) || 0.8) * tier);
-      line += ` · ⬆️ улучшить: ${m}$${def.wood ? ` 🪵${def.wood}` : ''}${def.stone ? ` 🪨${def.stone}` : ''}`;
-    } else line += ' · макс.';
-    html += `<div class="tip-lvl">${line}</div>`;
-    if (tier === 2) { // следующий уровень высший — нужно образование
-      const isProd = def.produces || def.output;
-      const thrH = (S.buildMeta && S.buildMeta.eduThreshold) || 60;
-      const thrD = Math.round(((S.buildMeta && S.buildMeta.prodEduShare) || 0.4) * 100);
-      if (def.kind === 'house') { const cur = cell.edu || 0; html += `<div class="tip-lvl ${cur >= thrH ? '' : 'tip-bad'}">для ур.3: образованность дома ≥${thrH}% (сейчас ${cur}%)</div>`; }
-      else if (isProd) { const cur = (dStats && dStats.edu) || 0; html += `<div class="tip-lvl ${cur >= thrD ? '' : 'tip-bad'}">для ур.3: образованных в районе ≥${thrD}% (сейчас ${cur}%)</div>`; }
-    }
-  }
+  let html = `<b>${def.label || cell.type}</b>${dName ? ` <span class="tip-dist">· ${escapeHtml(dName)}</span>` : ''}`;
+  const tier = cell.tier || 1;
   if (cell.type === 'house') {
-    const lvl = cell.level || 0, hp = cell.happy != null ? cell.happy : 0;
-    html += `<div class="tip-lvl">👥 ${cell.pop || 0}/${cell.cap || S.houseCap} · счастье ${hp}%</div>`;
-    html += `<div class="tip-lvl">Уровень ${lvl}/5${lvl ? ' — ' + S.tierLabels[lvl] : ' — базовые нужды не закрыты'}</div>`;
-    const move = (cell.savings || 0) >= 40;
-    html += `<div class="tip-lvl">💰 накопления ${cell.savings || 0}${hp <= 35 ? (move ? ' · копят на переезд в район получше' : ' · денег на переезд нет') : ''}</div>`;
-    const edu = cell.edu || 0;
-    html += `<div class="tip-lvl">🎓 образованность ${edu}%${edu >= 60 ? ' · можно улучшать дом' : ' · нужна школа рядом для апгрейда'}</div>`;
-    const nz = nuisancesAt(S.hover.x, S.hover.y);
-    if (nz.length) html += `<div class="tip-lvl tip-bad">⚠ рядом: ${nz.join(', ')}</div>`;
-    html += '<div class="tip-needs">';
-    for (let t = 1; t <= 5; t++) {
-      const parts = S.needs.filter((n) => n.tier === t).map((n) =>
-        `<span class="${cell.needs && cell.needs[n.key] ? 'ok' : 'no'}">${cell.needs && cell.needs[n.key] ? '✓' : '✗'} ${n.label}</span>`).join(' ');
-      html += `<div class="tip-tier"><span class="tip-t">${t}</span>${parts}</div>`;
-    }
-    html += '</div>';
-  } else if (def.range || def.kind === 'industry') {
-    if (def.produces) html += `<div class="tip-lvl">добывает ${RES_NAME[def.produces.res]} из ${TERR_OF[def.produces.res]} в радиусе (${SHAPE_NAME[def.range.shape]} r${def.range.r})</div>`;
-    else if (def.range) html += `<div class="tip-lvl">зона: ${SHAPE_NAME[def.range.shape]} r${def.range.r} (+1 у дороги) · обслуживает домов: ${cell.served || 0}</div>`;
-    if (def.output) html += `<div class="tip-lvl">коммерческий оборот +${def.output}</div>`;
-    const jb = S.jobs[cell.type] || 0;
-    html += `<div class="tip-lvl">${jb ? 'рабочих мест: ' + jb + ' · ' : ''}содержание ${def.upkeep || 0}/тик</div>`;
-    if (def.emits) for (const e of def.emits) html += `<div class="tip-lvl tip-bad">⚠ ${e.label}: ${e.negates ? '−' + needLabel(e.negates) + ', ' : ''}счастье ${e.happy} (${SHAPE_NAME[e.shape]} r${e.r})</div>`;
-  } else {
-    html += `<div class="tip-lvl">содержание ${def.upkeep || 0}/тик</div>`;
+    html += `<div class="tip-lvl">👥 ${cell.pop || 0}/${cell.cap || S.houseCap} · ☺ ${cell.happy != null ? cell.happy : 0}% · ур.${cell.level || 0}/5</div>`;
+  } else if (cell.type !== 'center' && cell.type !== 'road') {
+    if (def.produces) html += `<div class="tip-lvl">добывает ${RES_NAME[def.produces.res]} · ур.${tier}</div>`;
+    else if (def.range) html += `<div class="tip-lvl">обслуживает ${cell.served || 0} домов · ур.${tier}</div>`;
+    else html += `<div class="tip-lvl">ур.${tier}</div>`;
   }
-  if (cell.active === false && cell.type !== 'center') html += `<div class="tip-lvl tip-bad">⚠ нет дороги рядом — не работает</div>`;
-  if (dStats) html += `<div class="tip-lvl">${statsLine(dStats)}</div>`;
+  if (cell.active === false && cell.type !== 'center') html += `<div class="tip-lvl tip-bad">⚠ нет дороги рядом</div>`;
+  if (cell.type !== 'center' && cell.type !== 'road') html += `<div class="tip-hint-click">клик — подробнее</div>`;
   tip.innerHTML = html;
   placeTooltip(tip);
 }

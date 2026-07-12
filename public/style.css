@@ -268,33 +268,62 @@ input[type="text"]:focus { outline: none; border-color: var(--brass); }
 #dayfill { height: 100%; width: 0; background: var(--brass); transition: width .4s linear; }
 
 /* ---------- Газета ---------- */
-.boardcol { display: flex; flex-direction: column; gap: 14px; }
+/* ── Газета «Городскія Вѣсти» — левая колонка ── */
 .paper {
-  margin-top: 0; padding: 14px; border-radius: 12px;
-  background: #fbfaf5; border: 1px solid var(--line);
-  max-height: 220px; overflow-y: auto;
+  flex: 0 0 288px; width: 288px; align-self: stretch;
+  padding: 16px 18px 18px; border-radius: 4px;
+  background:
+    repeating-linear-gradient(0deg, rgba(120,100,60,.035) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #f7f1e2, #efe6d0);
+  border: 1px double #b7a887; box-shadow: 0 10px 26px rgba(60,48,26,.16), inset 0 0 0 1px rgba(255,255,255,.4);
+  color: #2c2418; font-family: Georgia, 'Times New Roman', 'PT Serif', serif;
+  max-height: none; overflow: visible; position: relative;
 }
-.boardcol .news { max-height: 150px; overflow-y: auto; }
+.paper::after { /* лёгкое загибание уголка */
+  content: ''; position: absolute; right: 0; bottom: 0; width: 26px; height: 26px;
+  background: linear-gradient(135deg, transparent 50%, rgba(120,100,60,.18) 50%); border-bottom-right-radius: 4px;
+}
 .paper.flash { animation: paperFlash 1s ease; }
-@keyframes paperFlash {
-  0% { box-shadow: 0 0 0 0 rgba(217,164,65,.6); }
-  100% { box-shadow: 0 0 0 10px rgba(217,164,65,0); }
-}
+@keyframes paperFlash { 0% { box-shadow: 0 0 0 0 rgba(217,164,65,.7), 0 10px 26px rgba(60,48,26,.16); } 100% { box-shadow: 0 0 0 12px rgba(217,164,65,0), 0 10px 26px rgba(60,48,26,.16); } }
 .paper-mast {
-  display: flex; align-items: baseline; justify-content: space-between;
-  border-bottom: 2px solid var(--ink); padding-bottom: 6px; margin-bottom: 10px;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  border-top: 3px double #4a3f2a; border-bottom: 3px double #4a3f2a;
+  padding: 6px 0 4px; margin-bottom: 4px;
 }
-.paper-title { font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -.3px; }
-.paper-day { font-size: 11px; color: var(--ink-soft); }
-.news { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.news li { display: flex; gap: 8px; font-size: 13px; line-height: 1.4; }
-.news-ic { flex: none; }
+.paper-title {
+  font-family: 'Playfair Display', Georgia, serif; font-weight: 800;
+  font-size: 25px; line-height: 1.05; letter-spacing: .3px; text-align: center; flex: 1;
+  text-shadow: 0 1px 0 rgba(255,255,255,.5);
+}
+.paper-ear { font-size: 9.5px; text-transform: uppercase; letter-spacing: .6px; color: #6b5c3d; white-space: nowrap; padding-bottom: 3px; }
+.paper-sub {
+  text-align: center; font-size: 10px; font-style: italic; color: #6b5c3d;
+  letter-spacing: .3px; border-bottom: 1px solid #9c8c6a; padding-bottom: 8px; margin-bottom: 10px;
+}
+.news { list-style: none; margin: 0; padding: 0; }
+.news li {
+  display: flex; gap: 8px; font-size: 12.5px; line-height: 1.5; text-align: justify;
+  padding: 8px 0; border-bottom: 1px solid rgba(120,100,60,.28);
+}
+.news li:first-child { font-size: 13.5px; }
+.news li:first-child .news-ic { font-size: 15px; }
+.news li:last-child { border-bottom: none; }
+.news-ic { flex: none; font-size: 13px; line-height: 1.4; }
 .standings {
-  display: flex; flex-direction: column; gap: 2px;
-  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line);
-  font-size: 12px; color: var(--ink-soft);
+  display: flex; flex-direction: column; gap: 3px;
+  margin-top: 8px; padding-top: 8px; border-top: 3px double #4a3f2a;
+  font-size: 11.5px; color: #574a30; font-style: italic;
 }
-.standings b { color: var(--ink); }
+.standings b { color: #2c2418; font-style: normal; }
+/* панель зума на доске */
+.zoombar { position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
+.zoombar button {
+  width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line);
+  background: rgba(255,255,255,.92); color: var(--ink); font-size: 17px; line-height: 1;
+  cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+}
+.zoombar button:hover { background: #fff; }
+
 .tip-dist { color: #b9ac97; font-weight: 400; }
 
 /* ---------- Экономика ---------- */
@@ -331,3 +360,33 @@ input[type="text"]:focus { outline: none; border-color: var(--brass); }
 .hint-sm { font-size: 11px; color: var(--ink-soft); list-style: none; }
 .tip-sub { opacity: .7; font-size: 11px; }
 .assets .asset[data-res] { cursor: help; }
+
+/* маленькая подсказка: подсказка-намёк на клик */
+.tip-hint-click { font-size: 10px; color: #b9ac97; margin-top: 3px; }
+
+/* панель подробностей по клику */
+.inspect {
+  position: absolute; top: 10px; left: 10px; width: 250px; max-height: calc(100% - 20px);
+  overflow-y: auto; background: rgba(255,255,255,.97); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px 14px 14px; box-shadow: 0 12px 30px rgba(0,0,0,.18);
+  font-size: 12.5px; color: var(--ink); z-index: 5;
+}
+.inspect-x { position: absolute; top: 6px; right: 8px; border: none; background: none; font-size: 20px; line-height: 1; color: var(--ink-soft); cursor: pointer; }
+.inspect-x:hover { color: var(--ink); }
+.ins-title { font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 16px; padding-right: 18px; margin-bottom: 6px; }
+.ins-row { margin: 3px 0; line-height: 1.4; }
+.ins-row.neg { color: #c0392b; }
+.ins-happy { display: flex; align-items: baseline; gap: 8px; margin: 8px 0 4px; }
+.ins-happy-n { font-size: 22px; font-weight: 800; font-family: 'Baloo 2', sans-serif; }
+.ins-happy-lbl { font-size: 11.5px; color: var(--ink-soft); }
+.ins-sub { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--ink-soft); margin: 10px 0 4px; }
+.ins-parts { list-style: none; margin: 0; padding: 0; }
+.ins-parts li { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; border-bottom: 1px dashed rgba(0,0,0,.07); }
+.ins-parts li b { font-variant-numeric: tabular-nums; }
+.ins-parts li.pos b { color: #2e9e5b; }
+.ins-parts li.neg b { color: #c0392b; }
+.ins-needs .tip-tier { display: flex; gap: 6px; align-items: center; margin: 2px 0; flex-wrap: wrap; }
+.ins-needs .tip-t { width: 15px; height: 15px; border-radius: 50%; background: var(--line); color: #fff; font-size: 9px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.ins-needs .ok { color: #2e9e5b; }
+.ins-needs .no { color: #c0392b; }
+.ins-stats { color: var(--ink-soft); }
