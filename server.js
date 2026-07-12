@@ -277,34 +277,33 @@ function initReserve(terrain) {
 // Добыча с истощением (вызывается в тик-цикле, мутирует room.terrain/room.reserve)
 function extractResources(room) {
   const n = GRID_SIZE, out = { water: 0, food: 0, wood: 0, stone: 0 };
-  const roadSet = new Set();
-  if (room.roads) for (let i = 0; i < room.roads.length; i++) if (room.roads[i]) roadSet.add(`${i % n},${Math.floor(i / n)}`);
   const depleted = [];
   for (const [k, cell] of room.grid) {
     const def = BUILDINGS[cell.type]; if (!def || !def.produces) continue;
     const pr = def.produces, [px, py] = k.split(',').map(Number);
     if (!roadNeighbor(room, px, py)) continue; // нет дороги — не работает
-    const nearRoad = neighbors(px, py).some(([nx, ny]) => roadSet.has(`${nx},${ny}`));
     const tier = tierOf(cell);
 
-    if (pr.model === 'farm') { // +5 база и +1 за каждый пустой (не занятой) тайл травы; квадрат r2 (+1/уровень)
-      const r = FARM_R + (tier - 1) + (nearRoad ? 1 : 0);
+    if (pr.model === 'farm') { // +5 база и +1 за каждый ПУСТОЙ тайл травы (внутри радиуса города); квадрат r2 (+1/уровень)
+      const r = FARM_R + (tier - 1);
       let empty = 0;
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
         const gx = px + dx, gy = py + dy; if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+        if (!inCity(room, gx, gy)) continue;                                  // только внутри радиуса города
         if (room.terrain[gy * n + gx] !== 'g') continue;
-        if (room.grid.has(`${gx},${gy}`) || roadAt(room, gx, gy)) continue; // занятой тайл не считаем
+        if (room.grid.has(`${gx},${gy}`) || roadAt(room, gx, gy)) continue;   // здание/дорога — занятой тайл, не трава
         empty += 1;
       }
       out.food += FARM_BASE + empty * FARM_PER_GRASS;
       continue;
     }
 
-    if (pr.model === 'well') { // база по уровню + N за каждый тайл воды в радиусе (истощаемо)
-      const r = WELL_R[tier - 1] + (nearRoad ? 1 : 0), per = WELL_PER[tier - 1];
+    if (pr.model === 'well') { // база по уровню + N за каждый тайл воды в радиусе (внутри города, истощаемо)
+      const r = WELL_R[tier - 1], per = WELL_PER[tier - 1];
       let got = WELL_BASE[tier - 1];
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
         const gx = px + dx, gy = py + dy; if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+        if (!inCity(room, gx, gy)) continue;
         const idx = gy * n + gx;
         if (room.terrain[idx] !== 'w' || room.reserve[idx] <= 0) continue;
         const take = Math.min(room.reserve[idx], per);
@@ -315,11 +314,12 @@ function extractResources(room) {
       continue;
     }
 
-    // perTile: лес/камень — по 1×уровень за тайл, истощаемо; квадрат r (+1/уровень)
-    const r = def.range.r + (nearRoad ? 1 : 0) + (tier - 1), per = (RES_RATE[pr.res] || 1) * tier;
+    // perTile: лес/камень — по 1×уровень за тайл (внутри города, истощаемо); квадрат r (+1/уровень)
+    const r = def.range.r + (tier - 1), per = (RES_RATE[pr.res] || 1) * tier;
     let got = 0;
     for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
       const gx = px + dx, gy = py + dy; if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+      if (!inCity(room, gx, gy)) continue;
       const idx = gy * n + gx;
       if (room.terrain[idx] !== pr.from || room.reserve[idx] <= 0) continue;
       const take = Math.min(room.reserve[idx], per);
