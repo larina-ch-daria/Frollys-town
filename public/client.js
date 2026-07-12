@@ -600,6 +600,13 @@ function updateTooltip() {
       line += ` · ⬆️ улучшить: ${m}$${def.wood ? ` 🪵${def.wood}` : ''}${def.stone ? ` 🪨${def.stone}` : ''}`;
     } else line += ' · макс.';
     html += `<div class="tip-lvl">${line}</div>`;
+    if (tier === 2) { // следующий уровень высший — нужно образование
+      const isProd = def.produces || def.output;
+      const thrH = (S.buildMeta && S.buildMeta.eduThreshold) || 60;
+      const thrD = Math.round(((S.buildMeta && S.buildMeta.prodEduShare) || 0.4) * 100);
+      if (def.kind === 'house') { const cur = cell.edu || 0; html += `<div class="tip-lvl ${cur >= thrH ? '' : 'tip-bad'}">для ур.3: образованность дома ≥${thrH}% (сейчас ${cur}%)</div>`; }
+      else if (isProd) { const cur = (dStats && dStats.edu) || 0; html += `<div class="tip-lvl ${cur >= thrD ? '' : 'tip-bad'}">для ур.3: образованных в районе ≥${thrD}% (сейчас ${cur}%)</div>`; }
+    }
   }
   if (cell.type === 'house') {
     const lvl = cell.level || 0, hp = cell.happy != null ? cell.happy : 0;

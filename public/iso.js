@@ -449,6 +449,7 @@ function render() {
   }
   for (const c of otherCursors()) { const p = project(c.x, c.y), px = p.x, py = p.y + TH / 2; ctx.fillStyle = c.color || '#888'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 10, py + 4); ctx.lineTo(px + 4, py + 10); ctx.closePath(); ctx.fill(); ctx.stroke(); }
 }
+undefined
 function drawCoverage(cx, cy, type) {
   const def = S.catalog[type]; if (!def) return;
   if (def.range) fillZone(cx, cy, def.range.shape, def.range.r, 'rgba(52,150,84,0.22)');
@@ -580,6 +581,13 @@ function updateTooltip() {
       line += ` · ⬆️ улучшить: ${m}$${def.wood ? ` 🪵${def.wood}` : ''}${def.stone ? ` 🪨${def.stone}` : ''}`;
     } else line += ' · макс.';
     html += `<div class="tip-lvl">${line}</div>`;
+    if (tier === 2) { // следующий уровень высший — нужно образование
+      const isProd = def.produces || def.output;
+      const thrH = (S.buildMeta && S.buildMeta.eduThreshold) || 60;
+      const thrD = Math.round(((S.buildMeta && S.buildMeta.prodEduShare) || 0.4) * 100);
+      if (def.kind === 'house') { const cur = cell.edu || 0; html += `<div class="tip-lvl ${cur >= thrH ? '' : 'tip-bad'}">для ур.3: образованность дома ≥${thrH}% (сейчас ${cur}%)</div>`; }
+      else if (isProd) { const cur = (dStats && dStats.edu) || 0; html += `<div class="tip-lvl ${cur >= thrD ? '' : 'tip-bad'}">для ур.3: образованных в районе ≥${thrD}% (сейчас ${cur}%)</div>`; }
+    }
   }
   if (cell.type === 'house') {
     const lvl = cell.level || 0, hp = cell.happy != null ? cell.happy : 0;

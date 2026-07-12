@@ -64,7 +64,7 @@ const SERVICE_FEE = 1;           // «оборот» коммерческого 
 // Ресурсы-склад (еда/вода): производители льют в общий пул, жители потребляют.
 // Добыча — целые числа, по спецификации плейтеста
 const FARM_BASE = 5, FARM_PER_GRASS = 1, FARM_R = 2;   // ферма: +5 база, +1 за пустой тайл травы, квадрат r2 (+1/уровень)
-const WELL_BASE = [5, 10, 15], WELL_PER = [1, 2, 3], WELL_R = [2, 3, 4]; // колодец по уровню: база / за тайл воды / радиус
+const WELL_BASE = [2, 4, 6], WELL_PER = [1, 2, 3], WELL_R = [2, 3, 4]; // колодец по уровню: база / за тайл воды / радиус
 const WOOD_PER_FOREST = 1;       // дерево лесопилки = × тайлов леса в радиусе (истощаемо)
 const STONE_PER_ROCK = 1;        // камень каменоломни = × тайлов камня в радиусе (истощаемо)
 const CONSUME_WATER = 1;         // потребление воды на жителя за тик
@@ -521,12 +521,14 @@ function computeSim(room) {
     houseInfo.set(h.k, { level, needs, pop, cap, district: hDist, happy, gross, active: hActive });
   }
 
-  // Здоровье района: нагрузка населения против порога (клиника поднимает порог)
+  // Здоровье района + доля образованных (для условий апгрейда)
   for (const [, info] of houseInfo) if (dstats[info.district]) dstats[info.district].pop += info.pop;
+  for (const h of houses) { const did = dOf.get(h.k); if (dstats[did]) dstats[did].eduPop = (dstats[did].eduPop || 0) + Math.round((h.edu || 0) * (h.pop || 0)); }
   for (const d of room.districts) {
     const s = dstats[d.id];
     const threshold = EPIDEMIC_POP + s.clinics * EPIDEMIC_CLINIC_BONUS;
     s.health = clamp(Math.round((s.pop / threshold) * 100), 0, 100);
+    s.edu = s.pop > 0 ? Math.round(((s.eduPop || 0) / s.pop) * 100) : 0;
   }
 
   // Налоги и содержание
@@ -818,13 +820,13 @@ function serializeState(room) {
     terrain: room.terrain.join(''), reserve: room.reserve || [], tileMax: TILE_RESERVE, roads: room.roads || [],
     catalog: BUILDINGS, needs: NEEDS, tierLabels: TIER_LABEL, sprites: spriteMap, houseCap: HOUSE_CAP,
     jobs: JOBS, terrainMeta: TERRAIN, terrainSprites,
-    buildMeta: { maxTier: MAX_BUILD_TIER, upCostMult: UP_COST_MULT, schoolCap: SCHOOL_CAP, schoolCapStep: SCHOOL_CAP_STEP, schoolBaseR: BUILDINGS.school.range.r, eduThreshold: Math.round(EDU_THRESHOLD * 100) },
+    buildMeta: { maxTier: MAX_BUILD_TIER, upCostMult: UP_COST_MULT, schoolCap: SCHOOL_CAP, schoolCapStep: SCHOOL_CAP_STEP, schoolBaseR: BUILDINGS.school.range.r, eduThreshold: Math.round(EDU_THRESHOLD * 100), prodEduShare: PROD_EDU_SHARE },
     districts: room.districts.map((d) => ({
       id: d.id, name: d.name, color: d.color, seed: d.seed,
       mods: Object.keys(d.mods), // активные модификаторы (иконки берутся из modIcons)
       stats: (sim.districtStats && sim.districtStats[d.id]) ? {
         eco: sim.districtStats[d.id].eco,
-        crime: sim.districtStats[d.id].crime, health: sim.districtStats[d.id].health,
+        crime: sim.districtStats[d.id].crime, health: sim.districtStats[d.id].health, edu: sim.districtStats[d.id].edu,
       } : null,
     })),
     modIcons: MOD_ICONS,
@@ -985,11 +987,14 @@ function onUpgrade(ws, msg) {  // кооп: улучшить может любо
   if (tier >= MAX_BUILD_TIER) return send(ws, { type: 'error', message: 'Уже максимальный уровень' });
   if (!inCity(room, x, y)) return send(ws, { type: 'error', message: 'Здание вне радиуса влияния — сначала верните веру' });
   const def = BUILDINGS[cell.type];
-  // Образование как условие апгрейда: дома — свои жители, производства — район
-  if (def.kind === 'house' && (cell.edu || 0) < EDU_THRESHOLD)
-    return send(ws, { type: 'error', message: 'Дом не улучшить: жители недостаточно образованы (нужна школа рядом)' });
-  if (def.produces && districtEduShare(room, x, y) < PROD_EDU_SHARE)
-    return send(ws, { type: 'error', message: 'Производство не улучшить: в районе мало образованных работников' });
+  const producing = def.produces || def.output; // производство: добытчик или завод
+  // Образование нужно только для ВЫСШЕГО уровня (2 → 3): дома — свои жители, производства — район
+  if (tier >= 2) {
+    if (def.kind === 'house' && (cell.edu || 0) < EDU_THRESHOLD)
+      return send(ws, { type: 'error', message: `Для 3-го уровня нужны образованные жители (≥${Math.round(EDU_THRESHOLD * 100)}%, сейчас ${cell.edu || 0}%) — постройте школу рядом` });
+    if (producing && districtEduShare(room, x, y) < PROD_EDU_SHARE)
+      return send(ws, { type: 'error', message: `Для 3-го уровня нужно ≥${Math.round(PROD_EDU_SHARE * 100)}% образованных в районе (сейчас ${Math.round(districtEduShare(room, x, y) * 100)}%)` });
+  }
   const c = upgradeCost(def, tier);
   if (room.treasury < c.money) return send(ws, { type: 'error', message: 'В казне не хватает денег' });
   if ((room.stock.wood || 0) < c.wood) return send(ws, { type: 'error', message: 'Не хватает дерева' });
