@@ -4,6 +4,11 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+// Рандом шанса событий вынесен за одну функцию, чтобы тесты могли его застабить
+// (setRng(() => 0) — событие всегда срабатывает; setRng(() => 99) — никогда).
+let _rng100 = () => crypto.randomInt(0, 100);
+function setRng(fn) { _rng100 = fn; }
+function rollChance(pct) { return _rng100() < pct; }
 const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 
@@ -609,7 +614,7 @@ const EVENTS = [
         if ((ctx.pop[d.id] || 0) < threshold || d.mods.epidemic) continue;
         let chance = (s && s.clinics) ? EPIDEMIC_CHANCE_CLINIC : EPIDEMIC_CHANCE;
         if (s) chance = Math.round(chance * (1 + (ECO_BASE - s.eco) / 100)); // грязный район болеет чаще, зелёный — реже
-        if (crypto.randomInt(0, 100) < chance) {
+        if (rollChance(chance)) {
           d.mods.epidemic = MOD_DAYS;
           news.push({ kind: 'epidemic', text: `Эпидемия в «${d.name}»: ${!(s && s.clinics) ? 'переполненный район без единой больницы слёг' : 'больницы не справляются с наплывом больных'}, жизнь замерла.` });
         }
@@ -622,7 +627,7 @@ const EVENTS = [
       for (const d of room.districts) {
         const t = ctx.types[d.id];
         const cultural = t.has('theater') && (t.has('park') || t.has('cafe'));
-        if (cultural && ctx.pop[d.id] >= 3 && !d.mods.festival && crypto.randomInt(0, 100) < FESTIVAL_CHANCE) {
+        if (cultural && ctx.pop[d.id] >= 3 && !d.mods.festival && rollChance(FESTIVAL_CHANCE)) {
           d.mods.festival = MOD_DAYS;
           news.push({ kind: 'festival', text: `Фестиваль в «${d.name}»: район гуляет, соседи тянутся на праздник — жителям хорошо и без лишних кафе.` });
         }
@@ -647,7 +652,7 @@ const EVENTS = [
       for (const d of room.districts) {
         const t = ctx.types[d.id];
         const trade = t.has('shop') && (t.has('cafe') || t.has('gym'));
-        if (trade && ctx.pop[d.id] >= 5 && !d.mods.fair && crypto.randomInt(0, 100) < 22) {
+        if (trade && ctx.pop[d.id] >= 5 && !d.mods.fair && rollChance(22)) {
           d.mods.fair = MOD_DAYS;
           news.push({ kind: 'fair', text: `Ярмарка в «${d.name}»: прилавки, музыка, толчея — жителям есть чем гордиться, «Признание» закрыто на время праздника.` });
         }
@@ -658,7 +663,7 @@ const EVENTS = [
     id: 'strike', icon: '✊', happyDelta: -15, // забастовка от высоких налогов
     run(room, ctx, news) {
       for (const d of room.districts) {
-        if (room.taxes.residential >= 28 && ctx.pop[d.id] >= 5 && !d.mods.strike && crypto.randomInt(0, 100) < 30) {
+        if (room.taxes.residential >= 28 && ctx.pop[d.id] >= 5 && !d.mods.strike && rollChance(30)) {
           d.mods.strike = MOD_DAYS;
           news.push({ kind: 'strike', text: `Забастовка в «${d.name}»: жилой налог ${room.taxes.residential}% — люди вышли на улицы, настроение резко падает. Снизьте налог.` });
         }
@@ -670,7 +675,7 @@ const EVENTS = [
     run(room, ctx, news) {
       for (const d of room.districts) {
         const s = ctx.stats[d.id];
-        if (s && s.eco <= 25 && ctx.types[d.id].has('factory') && !d.mods.smog && crypto.randomInt(0, 100) < 35) {
+        if (s && s.eco <= 25 && ctx.types[d.id].has('factory') && !d.mods.smog && rollChance(35)) {
           d.mods.smog = MOD_DAYS;
           news.push({ kind: 'smog', text: `Смог над «${d.name}»: экология ${s.eco}/100, заводы коптят — дышать нечем, жителям плохо. Добавьте парков или уберите заводы.` });
         }
@@ -682,7 +687,7 @@ const EVENTS = [
     run(room, ctx, news) {
       if (room.treasury < 2000 || !room.districts.length) return;
       const rich = [...room.districts].sort((a, b) => ctx.prosperity[b.id] - ctx.prosperity[a.id])[0];
-      if (ctx.prosperity[rich.id] >= 40 && !rich.mods.invest && crypto.randomInt(0, 100) < 25) {
+      if (ctx.prosperity[rich.id] >= 40 && !rich.mods.invest && rollChance(25)) {
         rich.mods.invest = MOD_DAYS;
         news.push({ kind: 'invest', text: `Приток инвестиций в «${rich.name}»: полная казна и богатый район притянули вложения — оптимизм, счастье растёт.` });
       }
@@ -1081,43 +1086,63 @@ function onSetTax(ws, msg) {
 }
 
 // --- Игровой цикл ---
-setInterval(() => {
-  const now = Date.now();
-  for (const [code, room] of rooms) {
-    const sim = computeSim(room);
-    room.treasury = Math.floor(room.treasury + sim.flows.net);
-    if (room.treasury < 0) { room.treasury = 0; room.deficit = true; } else room.deficit = false;
+function tickRoom(code, room, now) {
+  const sim = computeSim(room);
+  room.treasury = Math.floor(room.treasury + sim.flows.net);
+  if (room.treasury < 0) { room.treasury = 0; room.deficit = true; } else room.deficit = false;
 
-    // Склад ресурсов: добыча с истощением тайлов − потребление жителями
-    if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };
-    if (!room.short) room.short = { water: false, food: false };
-    const prod = extractResources(room);          // мутирует запас тайлов, опустевшие → трава
-    const pop = sim.flows.population;
-    const waterCons = pop * CONSUME_WATER, foodCons = pop * CONSUME_FOOD;
-    const nw = room.stock.water + prod.water - waterCons;
-    const nf = room.stock.food + prod.food - foodCons;
-    room.short.water = nw < 0; room.short.food = nf < 0;
-    room.stock.water = clamp(nw, 0, STOCK_CAP);
-    room.stock.food = clamp(nf, 0, STOCK_CAP);
-    room.stock.wood = clamp((room.stock.wood || 0) + prod.wood, 0, STOCK_CAP);
-    room.stock.stone = clamp((room.stock.stone || 0) + prod.stone, 0, STOCK_CAP);
-    room.prodRates = {
-      waterProd: Math.round(prod.water), waterCons, foodProd: Math.round(prod.food), foodCons,
-      woodProd: Math.round(prod.wood), stoneProd: Math.round(prod.stone),
-    };
+  // Склад ресурсов: добыча с истощением тайлов − потребление жителями
+  if (!room.stock) room.stock = { water: 0, food: 0, wood: 0, stone: 0 };
+  if (!room.short) room.short = { water: false, food: false };
+  const prod = extractResources(room);          // мутирует запас тайлов, опустевшие → трава
+  const pop = sim.flows.population;
+  const waterCons = pop * CONSUME_WATER, foodCons = pop * CONSUME_FOOD;
+  const nw = room.stock.water + prod.water - waterCons;
+  const nf = room.stock.food + prod.food - foodCons;
+  room.short.water = nw < 0; room.short.food = nf < 0;
+  room.stock.water = clamp(nw, 0, STOCK_CAP);
+  room.stock.food = clamp(nf, 0, STOCK_CAP);
+  room.stock.wood = clamp((room.stock.wood || 0) + prod.wood, 0, STOCK_CAP);
+  room.stock.stone = clamp((room.stock.stone || 0) + prod.stone, 0, STOCK_CAP);
+  room.prodRates = {
+    waterProd: Math.round(prod.water), waterCons, foodProd: Math.round(prod.food), foodCons,
+    woodProd: Math.round(prod.wood), stoneProd: Math.round(prod.stone),
+  };
 
-    room.tick = (room.tick || 0) + 1;
-    if (room.tick % DAY_TICKS === 0) runDay(room);
+  room.tick = (room.tick || 0) + 1;
+  if (room.tick % DAY_TICKS === 0) runDay(room);
 
-    const anyOnline = [...room.players.values()].some((p) => p.ws && p.ws.readyState === WebSocket.OPEN);
-    if (anyOnline) { room.lastActive = now; broadcast(room); }
-    else if (now - room.lastActive > ROOM_TTL_MS) rooms.delete(code);
-  }
-}, TICK_MS);
+  const anyOnline = [...room.players.values()].some((p) => p.ws && p.ws.readyState === WebSocket.OPEN);
+  if (anyOnline) { room.lastActive = now; broadcast(room); }
+  else if (now - room.lastActive > ROOM_TTL_MS) rooms.delete(code);
+}
+function tickAll() { const now = Date.now(); for (const [code, room] of rooms) tickRoom(code, room, now); }
 
-server.listen(PORT, () => {
-  console.log(`Город поднят на http://localhost:${PORT}`);
-  console.log(`Поле ${GRID_SIZE}x${GRID_SIZE}, тик ${TICK_MS} мс, день ${DAY_TICKS} тиков, казна ${START_TREASURY}$`);
-  const n = Object.keys(spriteMap).length;
-  console.log(n ? `Спрайты: ${Object.keys(spriteMap).join(', ')}` : 'Спрайтов нет — эмодзи');
-});
+// Запуск сервера и тик-луп — только при прямом запуске (node server.js),
+// но НЕ при require из тестов: тогда время двигают вручную через tickAll/runDay.
+function start(port) { return server.listen(port === undefined ? PORT : port); }
+if (require.main === module) {
+  start(PORT).on('listening', () => {
+    console.log(`Город поднят на http://localhost:${PORT}`);
+    console.log(`Поле ${GRID_SIZE}x${GRID_SIZE}, тик ${TICK_MS} мс, день ${DAY_TICKS} тиков, казна ${START_TREASURY}$`);
+    const n = Object.keys(spriteMap).length;
+    console.log(n ? `Спрайты: ${Object.keys(spriteMap).join(', ')}` : 'Спрайтов нет — эмодзи');
+  });
+  setInterval(tickAll, TICK_MS);
+}
+
+// Экспорт для тестов (node:test). Побочек при require нет — сервер не слушает, тик не идёт.
+module.exports = {
+  start, server, rooms, tickAll, tickRoom, broadcast, serializeState, getRoom,
+  computeSim, extractResources, runDay, updateEducation, schoolCoverage,
+  cityFaith, cityRadius, districtEduShare, upgradeCost, tierOf, tierMult,
+  EVENTS, BUILDINGS, NEEDS, GRID_SIZE, DAY_TICKS, setRng,
+  CONST: {
+    FARM_BASE, FARM_PER_GRASS, FARM_R, WELL_BASE, WELL_PER, WELL_R,
+    HOUSE_CAP, HOUSE_CAP_STEP, TIER_MULT, MAX_BUILD_TIER, UP_COST_MULT,
+    EDU_THRESHOLD, PROD_EDU_SHARE, SCHOOL_CAP, SCHOOL_CAP_STEP,
+    FAITH_PER_POP, FAITH_BASE_RADIUS, FAITH_RADIUS_COEF, FAITH_SOFT_RADIUS,
+    KNOWLEDGE_FAITH_COST, CHURCH_CAP, CHURCH_FAITH_PER, BASIC_COMFORT,
+    NO_ROAD_PENALTY, GRIDLOCK_PROVIDERS, MOD_DAYS, START_TREASURY,
+  },
+};
